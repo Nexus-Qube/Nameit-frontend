@@ -7,9 +7,10 @@ import {
   Image,
   Modal,
   TouchableOpacity,
+  Alert,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { getSocket } from "../services/socket";
+import { getSocket, removeGameListeners } from "../services/socket"; // ← CHANGED IMPORT
 import { fetchTopicById, fetchItemsByTopic } from "../services/api";
 import styles from "../styles/GameScreenStyles";
 
@@ -27,7 +28,7 @@ export default function ChallengeGameScreen() {
   const lobbyId = Number(params.lobbyId);
   const playerId = Number(params.playerId);
   const firstTurnPlayerId = Number(params.firstTurnPlayerId);
-  const firstTurnPlayerName = params.firstTurnPlayerName;
+  const firstTurnPlayerName = params.firstTurnPlayerName || "Unknown";
   const turnTime = Number(params.turnTime) || 10;
   const paramTopicId = Number(params.topicId);
 
@@ -49,7 +50,6 @@ export default function ChallengeGameScreen() {
     sheetHeight: DEFAULT_SHEET_HEIGHT,
     sheetUrl: null,
   });
-
   const [modalVisible, setModalVisible] = useState(false);
   const [statusMessage, setStatusMessage] = useState(
     "Answer before time runs out"
@@ -62,7 +62,7 @@ export default function ChallengeGameScreen() {
   const intervalRef = useRef(null);
   const hasLeftRef = useRef(false);
 
-  const socket = getSocket();
+  const socket = getSocket(); // ← CHANGED: Single socket instance
   currentTurnRef.current = currentTurnPlayer.id;
 
   const localSheets = {
@@ -88,13 +88,9 @@ export default function ChallengeGameScreen() {
     intervalRef.current = setInterval(() => {
       setTimer((prev) => {
         if (prev <= 0) {
-          if (
-            !hasLeftRef.current &&
-            currentTurnRef.current === playerId &&
-            !gameOver
-          ) {
+          if (!hasLeftRef.current && currentTurnRef.current === playerId && !gameOver) {
             console.log("⏰ Timer expired - auto buttonPress (wrong)");
-            socket.emit("buttonPress", { lobbyId, playerId, correct: false });
+            socket.emit("buttonPress", { lobbyId, playerId, correct: false, timeout: true });
             setStatusMessage("You lost");
           }
           return 0;
@@ -104,7 +100,7 @@ export default function ChallengeGameScreen() {
     }, 1000);
   };
 
-  // --- Fetch topic + items using api.js ---
+  // --- Fetch topic + items using API ---
   useEffect(() => {
     if (!topicId) return;
 
@@ -114,7 +110,7 @@ export default function ChallengeGameScreen() {
         if (!topicData) return;
 
         const sheet = localSheets[topicId] || {
-          src: require("../../assets/images/spritesheet_pokemon.png"),
+          src: require("../assets/images/spritesheet_pokemon.png"),
           width: DEFAULT_SHEET_WIDTH,
           height: DEFAULT_SHEET_HEIGHT,
         };
@@ -122,8 +118,7 @@ export default function ChallengeGameScreen() {
         setSpriteInfo({
           spriteSize: topicData.sprite_size || DEFAULT_SPRITE_SIZE,
           margin: DEFAULT_MARGIN,
-          spritesPerRow:
-            topicData.sprites_per_row || DEFAULT_SPRITES_PER_ROW,
+          spritesPerRow: topicData.sprites_per_row || DEFAULT_SPRITES_PER_ROW,
           sheetWidth: sheet.width,
           sheetHeight: sheet.height,
           sheetUrl: sheet.src,
@@ -133,10 +128,7 @@ export default function ChallengeGameScreen() {
 
         let sortedItems = [...itemsData];
         if (topicData.sort_field === "order") {
-          sortedItems.sort(
-            (a, b) =>
-              (a.attributes?.order ?? 0) - (b.attributes?.order ?? 0)
-          );
+          sortedItems.sort((a, b) => (a.attributes?.order ?? 0) - (b.attributes?.order ?? 0));
         } else if (topicData.sort_field === "name") {
           sortedItems.sort((a, b) => a.name.localeCompare(b.name));
         }
@@ -158,23 +150,22 @@ export default function ChallengeGameScreen() {
 
   // --- Socket listeners ---
   useEffect(() => {
-    socket.emit("joinGame", { lobbyId, playerId });
+    console.log(`🎮 Joining game - Lobby: ${lobbyId}, Player: ${playerId}, First Turn: ${firstTurnPlayerId}`);
+    
+    // CHANGED: Use joinGame to update socket ID and join game room
+    socket.emit("joinGame", { lobbyId, playerId, playerName: params.playerName });
 
-    socket.on("initItems", ({ solvedItems }) => {
+    const handleInitItems = ({ solvedItems }) => {
+      console.log(`📦 Received initItems with ${solvedItems.length} solved items`);
       setItems((prev) =>
-        prev.map((item) =>
-          solvedItems.includes(item.id)
-            ? { ...item, solved: true }
-            : item
-        )
+        prev.map((item) => (solvedItems.includes(item.id) ? { ...item, solved: true } : item))
       );
-    });
+    };
 
-    socket.on("itemSolved", ({ itemId }) => {
+    const handleItemSolved = ({ itemId }) => {
+      console.log(`✅ Item ${itemId} solved`);
       setItems((prev) =>
-        prev.map((item) =>
-          item.id === itemId ? { ...item, solved: true } : item
-        )
+        prev.map((item) => (item.id === itemId ? { ...item, solved: true } : item))
       );
 
       // Scroll to item
@@ -193,9 +184,12 @@ export default function ChallengeGameScreen() {
           );
         }
       }, 50);
-    });
+    };
 
-    const onTurnChanged = ({ currentTurnId, currentTurnName, timeLeft }) => {
+    const handleTurnChanged = ({ currentTurnId, currentTurnName, timeLeft }) => {
+      console.log(`🔄 Turn changed to player ${currentTurnId} (${currentTurnName})`);
+      console.log(`🔍 Frontend - Current turn: ${currentTurnId} (type: ${typeof currentTurnId}), Player: ${playerId} (type: ${typeof playerId})`);
+      
       setCurrentTurnPlayer({
         id: Number(currentTurnId),
         name: currentTurnName,
@@ -206,38 +200,49 @@ export default function ChallengeGameScreen() {
       startTimer();
     };
 
-    const onGameOver = ({ winner }) => {
+    const handleGameOver = ({ winner }) => {
+      console.log(`🏁 Game over! Winner: ${winner.name}`);
       setWinner(winner);
       setGameOver(true);
       setModalVisible(true);
       clearTimer();
-      socket.emit("leaveGame", { lobbyId, playerId });
 
-      if (winner.id === playerId) {
-        setStatusMessage("You won");
-      } else {
-        setStatusMessage("You lost");
-      }
+      setStatusMessage(winner.id === playerId ? "You won" : "You lost");
     };
 
-    socket.on("turnChanged", onTurnChanged);
-    socket.on("gameOver", onGameOver);
+    const handlePlayerLeft = ({ playerId, playerName }) => {
+      console.log(`❌ Player ${playerName} left the game`);
+      // You can update UI to show player left if needed
+    };
+
+    // Add listeners
+    socket.on("initItems", handleInitItems);
+    socket.on("itemSolved", handleItemSolved);
+    socket.on("turnChanged", handleTurnChanged);
+    socket.on("gameOver", handleGameOver);
+    socket.on("playerLeft", handlePlayerLeft);
 
     startTimer();
 
     return () => {
-      socket.off("initItems");
-      socket.off("itemSolved");
-      socket.off("turnChanged", onTurnChanged);
-      socket.off("gameOver", onGameOver);
+      // CHANGED: Remove game listeners but keep socket connection
+      removeGameListeners();
       clearTimer();
+      // CHANGED: Don't close the socket - it's shared with waiting room
     };
   }, [lobbyId, playerId]);
 
   // --- Handle input ---
   const handleInputChange = (text) => {
     setInput(text);
-    if (currentTurnRef.current !== playerId || gameOver) return;
+    
+    // Debug log for turn checking
+    console.log(`🔍 Frontend - Current turn: ${currentTurnPlayer.id} (type: ${typeof currentTurnPlayer.id}), Player: ${playerId} (type: ${typeof playerId})`);
+    
+    if (Number(currentTurnPlayer.id) !== Number(playerId) || gameOver) {
+      console.log(`⚠️ Not your turn! Current: ${currentTurnPlayer.id}, You: ${playerId}`);
+      return;
+    }
 
     const matched = items.find(
       (item) =>
@@ -246,10 +251,9 @@ export default function ChallengeGameScreen() {
     );
 
     if (matched) {
+      console.log(`🎯 Matched item: ${matched.name}`);
       setItems((prev) =>
-        prev.map((item) =>
-          item.id === matched.id ? { ...item, solved: true } : item
-        )
+        prev.map((item) => (item.id === matched.id ? { ...item, solved: true } : item))
       );
       setInput("");
       setPlayerSolvedCount((c) => c + 1);
@@ -276,12 +280,28 @@ export default function ChallengeGameScreen() {
 
   // --- Return to lobby ---
   const handleReturnToLobby = () => {
+    // Prevent returning to lobby if it's still your turn and game isn't over
+  if (currentTurnPlayer.id === playerId && !gameOver && timer > 0) {
+    Alert.alert(
+      "Still Your Turn",
+      "You cannot return to lobby during your turn. Wait for your turn to end or let the timer expire.",
+      [{ text: "OK" }]
+    );
+    return;
+  }
+  
     hasLeftRef.current = true;
     clearTimer();
     setGameOver(false);
     setWinner(null);
     setModalVisible(false);
-    socket.emit("leaveGame", { lobbyId, playerId });
+    
+    // CHANGED: Use returnToWaitingRoom instead of leaveGame
+    socket.emit("returnToWaitingRoom", { lobbyId, playerId });
+    
+    // Remove game listeners
+    removeGameListeners();
+    
     router.replace({
       pathname: "/waitingRoom",
       params: {
@@ -292,62 +312,78 @@ export default function ChallengeGameScreen() {
     });
   };
 
+  // Handle manual leave game (not returning to lobby)
+  const handleLeaveGame = () => {
+    hasLeftRef.current = true;
+    clearTimer();
+    setGameOver(false);
+    setWinner(null);
+    setModalVisible(false);
+    
+    // Use leaveGame for manual exit (not returning to waiting room)
+    socket.emit("leaveGame", { lobbyId, playerId });
+    
+    // Remove game listeners
+    removeGameListeners();
+    
+    router.replace("/lobbiesScreen");
+  };
+
   return (
     <View style={{ flex: 1, padding: 20 }}>
       {/* --- TOP ROW --- */}
       <View style={styles.topRow}>
-  <View style={styles.rowLeft}>
-    <TouchableOpacity onPress={handleReturnToLobby}>
-      <Text style={{ color: "blue", fontSize: 16 }}>Return to Lobby</Text>
-    </TouchableOpacity>
-  </View>
+        <View style={styles.rowLeft}>
+          <TouchableOpacity onPress={handleReturnToLobby}>
+            <Text style={{ color: "blue", fontSize: 16 }}>Return to Lobby</Text>
+          </TouchableOpacity>
+        </View>
 
-  <View style={styles.rowSection}>
-    <Text
-      style={[
-        styles.statusMessage,
-        statusMessage === "Answer before time runs out" && { color: "yellow" },
-        statusMessage === "You lost" && { color: "red" },
-        statusMessage === "You won" && { color: "green" },
-      ]}
-    >
-      {statusMessage}
-    </Text>
-  </View>
+        <View style={styles.rowSection}>
+          <Text
+            style={[
+              styles.statusMessage,
+              statusMessage === "Answer before time runs out" && { color: "yellow" },
+              statusMessage === "You lost" && { color: "red" },
+              statusMessage === "You won" && { color: "green" },
+            ]}
+          >
+            {statusMessage}
+          </Text>
+        </View>
 
-  <View style={styles.rowRight}>
-    <Text style={styles.counter}>
-      {solvedCount} / {items.length}
-    </Text>
-  </View>
-</View>
+        <View style={styles.rowRight}>
+          <Text style={styles.counter}>
+            {solvedCount} / {items.length}
+          </Text>
+        </View>
+      </View>
 
       {/* --- BOTTOM ROW --- */}
       <View style={styles.bottomRow}>
-  <View style={styles.rowLeft}>
-    <Text style={styles.countdown}>{timer}s</Text>
-  </View>
+        <View style={styles.rowLeft}>
+          <Text style={styles.countdown}>{timer}s</Text>
+        </View>
 
-  <View style={styles.rowSection}>
-    <Text
-      style={[
-        styles.counter,
-        currentTurnPlayer.id === playerId && { color: "green" },
-      ]}
-    >
-      {currentTurnPlayer.id === playerId
-        ? "Your turn!"
-        : `${currentTurnPlayer.name}'s turn`}
-    </Text>
-  </View>
+        <View style={styles.rowSection}>
+          <Text
+            style={[
+              styles.counter,
+              currentTurnPlayer.id === playerId && { color: "green" },
+            ]}
+          >
+            {currentTurnPlayer.id === playerId
+              ? "Your turn!"
+              : `${currentTurnPlayer.name}'s turn`}
+          </Text>
+        </View>
 
-  <View style={styles.rowRight}>
-    <Text style={styles.counter}>
-      You solved {playerSolvedCount}
-    </Text>
-  </View>
-</View>
-
+        <View style={styles.rowRight}>
+          <Text style={styles.counter}>
+            You solved {playerSolvedCount}
+          </Text>
+        </View>
+      </View>
 
       {/* --- INPUT --- */}
       <TextInput
@@ -431,16 +467,25 @@ export default function ChallengeGameScreen() {
             <Text style={styles.modalText}>
               Solved {solvedCount} / {items.length} items
             </Text>
+            <Text style={styles.modalText}>
+              You solved {playerSolvedCount} items
+            </Text>
 
-            <TouchableOpacity onPress={() => setModalVisible(false)}>
-              <Text style={{ color: "red", fontSize: 16, marginTop: 10 }}>
+            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalButton}>
+              <Text style={{ color: "red", fontSize: 16 }}>
                 Close
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={handleReturnToLobby}>
-              <Text style={{ color: "blue", fontSize: 16, marginTop: 10 }}>
+            <TouchableOpacity onPress={handleReturnToLobby} style={styles.modalButton}>
+              <Text style={{ color: "blue", fontSize: 16 }}>
                 Return to Lobby
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={handleLeaveGame} style={styles.modalButton}>
+              <Text style={{ color: "gray", fontSize: 16 }}>
+                Leave Game
               </Text>
             </TouchableOpacity>
           </View>

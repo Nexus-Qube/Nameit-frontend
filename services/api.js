@@ -1,4 +1,5 @@
 export const BASE_URL = 'http://192.168.0.22:3000'; // your backend URL
+//export const BASE_URL = 'https://nameit-backend.onrender.com'; // your backend URL
 
 // ---------- Categories ----------
 export async function fetchCategories() {

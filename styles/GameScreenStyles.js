@@ -129,5 +129,10 @@ rowRight: {
   flex: 1,
   alignItems: "flex-end",
 },
+modalButton: {
+  padding: 10,
+  marginTop: 10,
+  alignItems: 'center',
+},
   
 });

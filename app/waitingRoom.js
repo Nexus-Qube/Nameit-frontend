@@ -3,7 +3,7 @@ import { View, Text, Button, FlatList, StyleSheet, Alert } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { getPlayer } from "../services/session";
 import { getLobby } from "../services/api";
-import { getSocket } from "../services/socket";
+import { getSocket, removeWaitingRoomListeners } from "../services/socket"; // ← CHANGED IMPORT
 
 export default function WaitingRoom() {
   const router = useRouter();
@@ -16,54 +16,60 @@ export default function WaitingRoom() {
 
   const socketRef = useRef(null);
   const fetchedLobbyRef = useRef(null);
+  const isNavigatingToGameRef = useRef(false);
 
   useEffect(() => {
+    let isMounted = true;
+
     (async () => {
       const savedPlayer = await getPlayer();
       console.log("👤 Player loaded:", savedPlayer);
+
       if (!savedPlayer?.id) {
         router.push("/");
         return;
       }
+      if (!isMounted) return;
+
       setPlayer(savedPlayer);
 
+      // ✅ Use single socket
       const s = getSocket();
       socketRef.current = s;
-      console.log("✅ Socket connected:", s.id);
+
+      console.log("✅ Socket connected for waiting room:", s.id);
 
       try {
         const data = await getLobby(code);
         console.log("📥 Lobby fetched:", data);
+        if (!isMounted) return;
+
         setLobby(data);
         fetchedLobbyRef.current = data;
 
-        console.log("📝 Lobby topic_id:", data.topic_id);
-
-        s.emit("joinLobby", {
+        // CHANGED: Use joinWaitingRoom instead of joinLobby
+        s.emit("joinWaitingRoom", {
           lobbyId: data.id,
           playerId: savedPlayer.id,
           name: savedPlayer.name,
-          code: data.code,
         });
-        console.log("➡️ joinLobby emitted:", {
+        console.log("➡️ joinWaitingRoom emitted:", {
           lobbyId: data.id,
           playerId: savedPlayer.id,
           name: savedPlayer.name,
-          code: data.code,
         });
       } catch (err) {
         console.error(err);
         Alert.alert("Error", "Failed to join lobby.");
       }
 
+      // 🟢 Event listeners - same events but on single socket
       s.on("lobbyUpdate", (updatedLobby) => {
         console.log("📊 lobbyUpdate:", updatedLobby);
         if (!updatedLobby) return;
 
-        // Preserve topic_id if missing
         if (fetchedLobbyRef.current?.topic_id && !updatedLobby.topic_id) {
           updatedLobby.topic_id = fetchedLobbyRef.current.topic_id;
-          console.log("📝 Preserved topic_id:", updatedLobby.topic_id);
         }
 
         setLobby(updatedLobby);
@@ -74,7 +80,6 @@ export default function WaitingRoom() {
         );
         if (me) {
           setIsReady(me.is_ready);
-          console.log("My ready state:", me.is_ready);
         }
       });
 
@@ -93,11 +98,19 @@ export default function WaitingRoom() {
         const topicId = fetchedLobbyRef.current?.topic_id;
         console.log("📝 Starting game with topic_id:", topicId);
 
+        // Mark that we're navigating to game
+        isNavigatingToGameRef.current = true;
+
+        // Remove waiting room listeners but keep socket connection
+        removeWaitingRoomListeners();
+
+        // Navigate to challenge game screen - no socket switching needed!
         router.push({
           pathname: "challengeGameScreen",
           params: {
             lobbyId: Number(fetchedLobbyRef.current?.id),
             playerId: Number(savedPlayer.id),
+            playerName: savedPlayer.name,
             code: fetchedLobbyRef.current?.code,
             firstTurnPlayerId: Number(firstTurnPlayerId),
             firstTurnPlayerName,
@@ -107,16 +120,31 @@ export default function WaitingRoom() {
         });
       });
 
-      return () => {
-        if (fetchedLobbyRef.current?.id) {
+      s.on("playerLeft", ({ playerId, playerName }) => {
+        console.log(`❌ Player ${playerName} left the lobby`);
+        // Update UI if needed
+      });
+
+    })();
+
+    return () => {
+      console.log("👋 Leaving WaitingRoom — cleaning up listeners");
+
+      // Only leave the lobby if we're NOT navigating to the game
+      if (!isNavigatingToGameRef.current) {
+        const s = socketRef.current;
+        if (s && fetchedLobbyRef.current?.id && player?.id) {
           s.emit("leaveLobby", {
             lobbyId: fetchedLobbyRef.current.id,
-            playerId: savedPlayer.id,
+            playerId: player.id,
           });
         }
-        // 🚫 Do NOT disconnect socket here — game screen will still use it
-      };
-    })();
+      }
+
+      // Remove waiting room listeners but keep socket connection
+      removeWaitingRoomListeners();
+      isMounted = false;
+    };
   }, [code]);
 
   const handleReady = () => {
@@ -129,11 +157,6 @@ export default function WaitingRoom() {
       playerId: player.id,
       isReady: newReady,
     });
-    console.log("🟢 setReady emitted:", {
-      lobbyId: lobby.id,
-      playerId: player.id,
-      isReady: newReady,
-    });
   };
 
   const handleStart = () => {
@@ -141,8 +164,6 @@ export default function WaitingRoom() {
     if (String(player.id) !== String(lobby.ownerId)) return;
 
     console.log("🚀 Start game by owner:", player.id);
-    console.log("📝 Owner starting game, lobby topic_id:", lobby.topic_id);
-
     socketRef.current.emit("startGame", { lobbyId: lobby.id });
   };
 
@@ -156,7 +177,8 @@ export default function WaitingRoom() {
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  if (!lobby || !player) return <Text style={{ color: "#fff" }}>Loading lobby...</Text>;
+  if (!lobby || !player)
+    return <Text style={{ color: "#fff" }}>Loading lobby...</Text>;
 
   const allReady = lobby.players?.every((p) => p.is_ready);
   const isOwner = String(player.id) === String(lobby.ownerId);
@@ -180,12 +202,18 @@ export default function WaitingRoom() {
 
       {isOwner && (
         <View style={{ marginTop: 10 }}>
-          <Button title="Start" onPress={handleStart} disabled={!allReady || countdown !== null} />
+          <Button
+            title="Start"
+            onPress={handleStart}
+            disabled={!allReady || countdown !== null}
+          />
         </View>
       )}
 
       {countdown !== null && (
-        <Text style={styles.countdownText}>Game starts in {countdown} s</Text>
+        <Text style={styles.countdownText}>
+          Game starts in {countdown} s
+        </Text>
       )}
 
       <View style={{ marginTop: 20 }}>
@@ -199,7 +227,8 @@ export default function WaitingRoom() {
                 playerId: player.id,
               });
             }
-            router.replace("/lobbiesScreen"); // ✅ always go to lobbies page
+            removeWaitingRoomListeners();
+            router.replace("/lobbiesScreen");
           }}
         />
       </View>
@@ -208,8 +237,24 @@ export default function WaitingRoom() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20, backgroundColor: "#000" },
-  title: { fontSize: 18, fontWeight: "bold", color: "#007AFF", marginBottom: 15 },
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+    backgroundColor: "#000",
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#007AFF",
+    marginBottom: 15,
+  },
   playerText: { color: "#fff", marginBottom: 5 },
-  countdownText: { color: "#ff0", fontSize: 20, marginTop: 15, fontWeight: "bold" },
+  countdownText: {
+    color: "#ff0",
+    fontSize: 20,
+    marginTop: 15,
+    fontWeight: "bold",
+  },
 });
