@@ -1,8 +1,10 @@
 // frontend/services/socket.js
 import { io } from "socket.io-client";
 
-const SOCKET_URL = "http://192.168.0.22:3000";
+//const SOCKET_URL = "http://192.168.0.22:3000";
 //const SOCKET_URL = "https://nameit-backend.onrender.com";
+const SOCKET_URL = "https://nameit-backend.onrender.com";
+
 
 let socket = null;
 

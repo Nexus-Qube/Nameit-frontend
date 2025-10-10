@@ -13,6 +13,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { getSocket, removeGameListeners } from "../services/socket"; // ← CHANGED IMPORT
 import { fetchTopicById, fetchItemsByTopic } from "../services/api";
 import styles from "../styles/GameScreenStyles";
+import solvedBorder from "../assets/images/solved_border.png";
+import itemUnsolved from "../assets/images/item_unsolved.png"; // Add this line
 
 // Default sprite sheet info
 const DEFAULT_SPRITE_SIZE = 120;
@@ -67,9 +69,9 @@ export default function ChallengeGameScreen() {
 
   const localSheets = {
     3: {
-      src: require("../assets/images/spritesheet_pokemon.png"),
-      width: 2381,
-      height: 1531,
+      src: require("../assets/images/spritesheet_pokemon21.png"),
+      width: 3871,
+      height: 2904,
     },
     4: {
       src: require("../assets/images/spritesheet_lol.png"),
@@ -110,7 +112,7 @@ export default function ChallengeGameScreen() {
         if (!topicData) return;
 
         const sheet = localSheets[topicId] || {
-          src: require("../assets/images/spritesheet_pokemon.png"),
+          src: require("../assets/images/spritesheet_pokemon21.png"),
           width: DEFAULT_SHEET_WIDTH,
           height: DEFAULT_SHEET_HEIGHT,
         };
@@ -405,54 +407,73 @@ export default function ChallengeGameScreen() {
 
       {/* --- GRID --- */}
       <ScrollView contentContainerStyle={styles.grid} ref={scrollRef}>
-        {items.map((item) => {
-          const { left, top } = getSpritePosition(item.order);
-          const isSolvedOrGameOver = item.solved || gameOver;
+  {items.map((item) => {
+    const { left, top } = getSpritePosition(item.order);
+    const isSolvedOrGameOver = item.solved || gameOver;
+    
+    const spriteSize = spriteInfo.spriteSize || DEFAULT_SPRITE_SIZE;
+    const containerSize = 100;
+    const scale = containerSize / spriteSize;
 
-          return (
-            <View key={item.id} style={styles.itemContainer}>
-              <View
-                style={styles.itemSquare}
-                ref={(ref) => (itemRefs.current[item.id] = ref)}
-              >
-                {item.solved && spriteInfo.sheetUrl ? (
-                  <View
-                    style={{
-                      width: spriteInfo.spriteSize,
-                      height: spriteInfo.spriteSize,
-                      overflow: "hidden",
-                    }}
-                  >
-                    <Image
-                      source={spriteInfo.sheetUrl}
-                      style={{
-                        width: spriteInfo.sheetWidth,
-                        height: spriteInfo.sheetHeight,
-                        transform: [
-                          { translateX: -left },
-                          { translateY: -top },
-                        ],
-                      }}
-                    />
-                  </View>
-                ) : null}
-              </View>
-
-              {isSolvedOrGameOver && (
-                <Text
+    return (
+      <View key={item.id} style={styles.itemContainer}>
+        {/* Outer container for the border */}
+        <View style={styles.outerContainer}>
+          {/* Inner container for the image */}
+          <View
+            style={styles.itemSquare}
+            ref={(ref) => (itemRefs.current[item.id] = ref)}
+          >
+            {/* Show unsolved background image if item is not solved */}
+            {!item.solved && (
+              <Image 
+                source={itemUnsolved}
+                style={styles.unsolvedBackground}
+              />
+            )}
+            
+            {/* Show sprite image if item is solved */}
+            {item.solved && spriteInfo.sheetUrl ? (
+              <View style={styles.imageContainer}>
+                <Image
+                  source={spriteInfo.sheetUrl}
                   style={{
-                    color: item.solved ? "#fff" : "gray",
-                    textAlign: "center",
-                    marginTop: 4,
+                    width: spriteInfo.sheetWidth * scale,
+                    height: spriteInfo.sheetHeight * scale,
+                    transform: [
+                      { translateX: -left * scale },
+                      { translateY: -top * scale },
+                    ],
                   }}
-                >
-                  {item.name}
-                </Text>
-              )}
-            </View>
-          );
-        })}
-      </ScrollView>
+                />
+              </View>
+            ) : null}
+          </View>
+          
+          {/* Border overlay - only for solved items */}
+          {item.solved && (
+            <Image 
+              source={solvedBorder}
+              style={styles.borderOverlay}
+            />
+          )}
+        </View>
+
+        {isSolvedOrGameOver && (
+          <Text
+            style={{
+              color: item.solved ? "#fff" : "gray",
+              textAlign: "center",
+              marginTop: 4,
+            }}
+          >
+            {item.name}
+          </Text>
+        )}
+      </View>
+    );
+  })}
+</ScrollView>
 
       {/* --- MODAL --- */}
       <Modal visible={modalVisible} transparent animationType="fade">

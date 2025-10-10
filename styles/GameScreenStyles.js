@@ -31,15 +31,48 @@ export default StyleSheet.create({
     flexWrap: "wrap",
     gap: 10,
   },
+   outerContainer: {
+    width: 120, // Matches your border image size
+    height: 120,
+    alignItems: "center",
+    justifyContent: "center",
+    position: 'relative', // For absolute positioning of border
+  },
+
   itemSquare: {
     width: 100,
     height: 100,
     backgroundColor: "#ccc",
     alignItems: "center",
     justifyContent: "center",
-    margin: 5,
     borderRadius: 8,
+    overflow: "hidden", // Only affects the image, not the border
+    position: 'relative', // Add this for the background image
   },
+
+  unsolvedBackground: {
+    width: 100,
+    height: 100,
+    position: 'absolute', // Cover the entire itemSquare
+    top: 0,
+    left: 0,
+    resizeMode: 'cover', // or 'contain' depending on your image
+  },
+  imageContainer: {
+    width: 100,
+    height: 100,
+    overflow: "hidden",
+  },
+
+  borderOverlay: {
+    width: 120,
+    height: 120,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    resizeMode: 'contain',
+  },
+  
   solved: {
     backgroundColor: "green",
   },
@@ -89,9 +122,9 @@ export default StyleSheet.create({
   },
   itemContainer: {
   alignItems: "center",
-  margin: 5,
-  width: 100,       // match itemSquare
-  height: 130,      // enough for square + caption
+  margin: 2,
+  width: 120,       // match itemSquare
+  height: 150,      // enough for square + caption
 },
 pokemonName: {
   marginTop: 4,

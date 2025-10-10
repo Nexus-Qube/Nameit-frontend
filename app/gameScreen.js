@@ -29,7 +29,7 @@ export default function GameScreen() {
   });
 
   const localSheets = {
-    3: { src: require("../assets/images/spritesheet_pokemon.png"), width: 2381, height: 1531 },
+    3: { src: require("../assets/images/spritesheet_pokemon21.png"), width: 3871, height: 2904 },
     4: { src: require("../assets/images/spritesheet_lol.png"), width: 1211, height: 2179 }
   };
 
