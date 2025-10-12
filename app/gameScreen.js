@@ -1,23 +1,40 @@
 import { useEffect, useState, useRef } from "react";
-import { View, Text, ScrollView, TextInput, Modal, TouchableOpacity, Image } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  ScrollView,
+  Image,
+  Modal,
+  TouchableOpacity,
+  Dimensions,
+} from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import styles from "../styles/GameScreenStyles";
 import { fetchTopicById, fetchItemsByTopic } from '../services/api';
+import { getSpriteSheetConfig } from "../config/spriteSheetConfigs";
+import { initializeGameItems } from "../helpers/gameLogicHelpers";
+import { scrollToItem } from "../helpers/scrollHelpers";
+import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelpers";
+import { useGameLogic } from "../hooks/useGameLogic";
+import styles from "../styles/GameScreenStyles";
+import solvedBorder from "../assets/images/solved_border2.png";
+import itemUnsolved from "../assets/images/item_unsolved.png";
 
-const DEFAULT_SPRITE_SIZE = 84;
+// Default sprite sheet info
+const DEFAULT_SPRITE_SIZE = 120;
 const DEFAULT_MARGIN = 1;
-const DEFAULT_SPRITES_PER_ROW = 28;
+const DEFAULT_SPRITES_PER_ROW = 10;
 const DEFAULT_SHEET_WIDTH = 2381;
-const DEFAULT_SHEET_HEIGHT = 1531;
+const DEFAULT_SHEET_HEIGHT = 2180;
 
 export default function GameScreen() {
+  const { width } = Dimensions.get('window');
+  const itemWidth = width >= 400 ? 120 : '30%';
+
   const { topicId, mode } = useLocalSearchParams();
   const router = useRouter();
-  const scrollRef = useRef(null);
-  const itemRefs = useRef({});
 
-  const [items, setItems] = useState([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(""); // ADD THIS LINE - input state was missing
   const [time, setTime] = useState(mode === "countdown" ? 60 : 0);
   const [gameOver, setGameOver] = useState(false);
   const [spriteInfo, setSpriteInfo] = useState({
@@ -25,192 +42,274 @@ export default function GameScreen() {
     margin: DEFAULT_MARGIN,
     spritesPerRow: DEFAULT_SPRITES_PER_ROW,
     sheetWidth: DEFAULT_SHEET_WIDTH,
-    sheetHeight: DEFAULT_SHEET_HEIGHT
+    sheetHeight: DEFAULT_SHEET_HEIGHT,
+    sheetUrl: null,
   });
 
-  const localSheets = {
-    3: { src: require("../assets/images/spritesheet_pokemon21.png"), width: 3871, height: 2904 },
-    4: { src: require("../assets/images/spritesheet_lol.png"), width: 1211, height: 2179 }
+  const scrollRef = useRef(null);
+  const itemRefs = useRef({});
+  const intervalRef = useRef(null);
+
+  // Custom hooks
+  const { items, setItems, playerSolvedCount, handleItemMatch, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
+
+  // --- Timer functions ---
+  const clearTimer = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
   };
 
-  useEffect(() => {
-  const fetchData = async () => {
-    try {
-      const topicNum = Number(topicId);
-      if (!topicNum) return;
-
-      // Fetch topic via api.js
-      const topicData = await fetchTopicById(topicNum);
-      if (!topicData) return;
-
-      // Pick sprite sheet
-      const sheet = localSheets[topicData.id] || {
-        src: require("../assets/images/spritesheet_pokemon.png"),
-        width: DEFAULT_SHEET_WIDTH,
-        height: DEFAULT_SHEET_HEIGHT
-      };
-
-      setSpriteInfo({
-        spriteSize: topicData.sprite_size || DEFAULT_SPRITE_SIZE,
-        margin: DEFAULT_MARGIN,
-        spritesPerRow: topicData.sprites_per_row || DEFAULT_SPRITES_PER_ROW,
-        sheetWidth: sheet.width,
-        sheetHeight: sheet.height,
-        sheetUrl: sheet.src
-      });
-
-      // Fetch items via api.js
-      const itemsData = await fetchItemsByTopic(topicNum);
-
-      // Sort items
-      let sortedItems = [...itemsData];
-      if (topicData.sort_field === "order") {
-        sortedItems.sort((a, b) => (a.attributes?.order ?? 0) - (b.attributes?.order ?? 0));
-      } else if (topicData.sort_field === "name") {
-        sortedItems.sort((a, b) => a.name.localeCompare(b.name));
-      }
-
-      setItems(
-        sortedItems.map(item => ({
-          ...item,
-          solved: false,
-          order: item.attributes?.order
-        }))
-      );
-    } catch (err) {
-      console.error("Error fetching topic/items:", err);
-    }
-  };
-
-  fetchData();
-}, [topicId]);
-
-  // Timer logic
-  useEffect(() => {
+  const startTimer = () => {
+    clearTimer();
+    
     if (mode === "countdown") {
-      if (time <= 0) return setGameOver(true);
-      const timer = setInterval(() => setTime(prev => prev - 1), 1000);
-      return () => clearInterval(timer);
+      intervalRef.current = setInterval(() => {
+        setTime((prev) => {
+          if (prev <= 0) {
+            setGameOver(true);
+            clearTimer();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     } else if (mode === "fastest") {
-      if (gameOver) return;
-      const timer = setInterval(() => setTime(prev => prev + 1), 1000);
-      return () => clearInterval(timer);
+      intervalRef.current = setInterval(() => {
+        setTime((prev) => prev + 1);
+      }, 1000);
     }
-  }, [time, mode, gameOver]);
+  };
 
-  const handleInputChange = text => {
+  // --- Fetch topic + items using API ---
+  useEffect(() => {
+    const topicNum = Number(topicId);
+    if (!topicNum) return;
+
+    const fetchData = async () => {
+      try {
+        const topicData = await fetchTopicById(topicNum);
+        if (!topicData) return;
+
+        // Get sprite sheet configuration from JSON config
+        const spriteConfig = getSpriteSheetConfig(topicNum);
+
+        setSpriteInfo({
+          spriteSize: topicData.sprite_size || DEFAULT_SPRITE_SIZE,
+          margin: DEFAULT_MARGIN,
+          spritesPerRow: topicData.sprites_per_row || DEFAULT_SPRITES_PER_ROW,
+          sheetWidth: spriteConfig.width,
+          sheetHeight: spriteConfig.height,
+          sheetUrl: spriteConfig.src,
+        });
+
+        const itemsData = await fetchItemsByTopic(topicNum);
+        const initializedItems = initializeGameItems(itemsData, topicData);
+        setItems(initializedItems);
+        
+        console.log(`✅ Loaded sprite sheet for topic ${topicNum}: ${spriteConfig.fileName}`);
+      } catch (err) {
+        console.error("Error fetching topic/items:", err);
+      }
+    };
+
+    fetchData();
+  }, [topicId]);
+
+  // Start timer on component mount
+  useEffect(() => {
+    startTimer();
+    return () => clearTimer();
+  }, [mode]);
+
+  // Check for game completion
+  useEffect(() => {
+    if (mode === "fastest" && items.length > 0 && solvedCount === items.length) {
+      setGameOver(true);
+      clearTimer();
+    }
+  }, [solvedCount, items, mode]);
+
+  // --- Handle input ---
+  const handleInputChange = (text) => {
     setInput(text);
-    const matched = items.find(
-      item => !item.solved && item.name.toLowerCase() === text.trim().toLowerCase()
-    );
-
+    
+    const matched = handleItemMatch(text, 1, 1, gameOver); // Using 1 for single player
+    
     if (matched) {
-      setItems(prev =>
-        prev.map(item => item.id === matched.id ? { ...item, solved: true } : item)
-      );
+      console.log(`🎯 Matched item: ${matched.name}`);
       setInput("");
+      incrementPlayerSolvedCount();
 
+      // Add time bonus in countdown mode
       if (mode === "countdown") {
         setTime(prev => prev + 5);
       }
 
-      const ref = itemRefs.current[matched.id];
-      if (ref?.scrollIntoView) ref.scrollIntoView({ behavior: "smooth", block: "center" });
-      else if (ref?.measureLayout) ref.measureLayout(scrollRef.current, (x, y) => {
-        scrollRef.current.scrollTo({ y: y - 10, animated: true });
-      });
+      // Scroll to the solved item (no flip animation)
+      setTimeout(() => {
+        scrollToItem(itemRefs, scrollRef, matched.id);
+      }, 100);
     }
   };
 
-  const solvedCount = items.filter(item => item.solved).length;
-
-  useEffect(() => {
-    if (mode === "fastest" && items.length > 0 && solvedCount === items.length) setGameOver(true);
-  }, [solvedCount, items, mode]);
-
-  const formatTime = seconds => {
+  const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  function getSpritePosition(order) {
-    const index = order - 1;
-    const row = Math.floor(index / spriteInfo.spritesPerRow);
-    const col = index % spriteInfo.spritesPerRow;
-    const left = 1 + col * (spriteInfo.spriteSize + spriteInfo.margin);
-    const top = 1 + row * (spriteInfo.spriteSize + spriteInfo.margin);
-    return { left, top };
-  }
+  const handleExitGame = () => {
+    clearTimer();
+    setGameOver(false);
+    router.replace("/");
+  };
+
+  const handleRestartGame = () => {
+    clearTimer();
+    setGameOver(false);
+    setTime(mode === "countdown" ? 60 : 0);
+    setInput(""); // Reset input on restart
+    setItems(prev => prev.map(item => ({ ...item, solved: false })));
+    startTimer();
+  };
 
   return (
     <View style={{ flex: 1, padding: 20 }}>
+      {/* Top Row */}
       <View style={styles.topRow}>
-        <Text style={styles.countdown}>{mode === "countdown" ? `${time}s` : formatTime(time)}</Text>
-        <Text style={styles.counter}>{solvedCount} / {items.length}</Text>
+        <View style={styles.rowLeft}>
+          <TouchableOpacity onPress={handleExitGame}>
+            <Text style={{ color: "blue", fontSize: 16 }}>Exit Game</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.rowSection}>
+          <Text style={styles.counter}>
+            {solvedCount} / {items.length}
+          </Text>
+        </View>
+
+        <View style={styles.rowRight}>
+          <Text style={styles.countdown}>
+            {mode === "countdown" ? `${time}s` : formatTime(time)}
+          </Text>
+        </View>
       </View>
 
+      {/* Player Stats Row */}
+      <View style={styles.bottomRow}>
+        <View style={styles.rowSection}>
+          <Text style={styles.counter}>
+            You solved {playerSolvedCount}
+          </Text>
+        </View>
+      </View>
+
+      {/* Input Field */}
       <TextInput
         placeholder="Type item name..."
         value={input}
         onChangeText={handleInputChange}
         style={styles.input}
-        placeholderTextColor="#888"
+        autoCapitalize="none"
+        autoCorrect={false}
+        editable={!gameOver}
       />
 
-      <ScrollView contentContainerStyle={styles.grid} ref={scrollRef}>
-        {items.map(item => {
-          const { left, top } = getSpritePosition(item.order);
+      {/* Game Grid */}
+      <ScrollView 
+        contentContainerStyle={styles.grid} 
+        ref={scrollRef}
+        showsVerticalScrollIndicator={true}
+      >
+        {items.map((item) => {
+          const { left, top } = getSpritePosition(item.order, spriteInfo);
+          const isSolvedOrGameOver = item.solved || gameOver;
+          
+          const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
 
           return (
-            <View key={item.id} style={styles.itemContainer}>
-              <View
-                style={[styles.itemSquare, item.solved ? styles.solved : null]}
-                ref={ref => (itemRefs.current[item.id] = ref)}
-              >
-                {item.solved && item.order ? (
-                  <View
-                    style={{
-                      width: spriteInfo.spriteSize,
-                      height: spriteInfo.spriteSize,
-                      overflow: "hidden",
-                      borderWidth: 1,
-                      borderColor: "green",
-                    }}
-                  >
+            <View key={item.id} style={[styles.itemContainer, { width: itemWidth }]}>
+              <View style={styles.outerContainer}>
+                <View 
+                  style={styles.imageContainer}
+                  ref={(ref) => (itemRefs.current[item.id] = ref)}
+                >
+                  {/* Show unsolved background or solved sprite */}
+                  {!item.solved ? (
+                    <Image 
+                      source={itemUnsolved}
+                      style={styles.unsolvedBackground}
+                    />
+                  ) : (
                     <Image
                       source={spriteInfo.sheetUrl}
                       style={{
-                        width: spriteInfo.sheetWidth,
-                        height: spriteInfo.sheetHeight,
+                        width: spriteInfo.sheetWidth * scale,
+                        height: spriteInfo.sheetHeight * scale,
                         transform: [
-                          { translateX: -left },
-                          { translateY: -top }
+                          { translateX: -left * scale },
+                          { translateY: -top * scale },
                         ],
                       }}
                     />
-                  </View>
-                ) : item.solved && !item.order ? (
-                  <Text style={styles.itemText}>{item.name}</Text>
-                ) : null}
+                  )}
+                </View>
+                
+                {/* Border overlay - only for solved items */}
+                {item.solved && (
+                  <Image 
+                    source={solvedBorder}
+                    style={styles.borderOverlay}
+                  />
+                )}
               </View>
-              {item.solved && <Text style={styles.pokemonName}>{item.name}</Text>}
+
+              {isSolvedOrGameOver && (
+                <Text
+                  style={{
+                    color: item.solved ? "#fff" : "gray",
+                    textAlign: "center",
+                    marginTop: 4,
+                  }}
+                >
+                  {item.name}
+                </Text>
+              )}
             </View>
           );
         })}
       </ScrollView>
 
-      <Modal visible={gameOver} transparent animationType="slide">
+      {/* Game Over Modal */}
+      <Modal visible={gameOver} transparent animationType="fade">
         <View style={styles.modalBackground}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Game Over</Text>
+            
             {mode === "countdown" ? (
-              <Text style={styles.modalText}>You got {solvedCount} / {items.length} correct!</Text>
+              <Text style={styles.modalText}>
+                You got {solvedCount} / {items.length} correct!
+              </Text>
             ) : (
-              <Text style={styles.modalText}>Completed in {formatTime(time)}!</Text>
+              <Text style={styles.modalText}>
+                Completed in {formatTime(time)}!
+              </Text>
             )}
-            <TouchableOpacity style={styles.modalButton} onPress={() => { setGameOver(false); router.replace("/"); }}>
-              <Text style={styles.modalButtonText}>Home</Text>
+            
+            <Text style={styles.modalText}>
+              You solved {playerSolvedCount} items
+            </Text>
+
+            <TouchableOpacity onPress={handleRestartGame} style={styles.modalButton}>
+              <Text style={{ color: "blue", fontSize: 16 }}>
+                Play Again
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={handleExitGame} style={styles.modalButton}>
+              <Text style={{ color: "red", fontSize: 16 }}>
+                Exit Game
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

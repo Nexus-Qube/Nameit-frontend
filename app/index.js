@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { View, Button, TextInput, Text, Modal, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, TextInput, Text, Modal, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { login, register } from '../services/api';
-import { savePlayer, getPlayer, clearPlayer } from '../services/session'; // <-- added clearPlayer
+import { savePlayer, getPlayer, clearPlayer } from '../services/session';
+import styles from '../styles/HomeScreenStyles';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -51,8 +52,8 @@ export default function HomeScreen() {
 
   const handleSinglePlayer = () => {
     if (!player) return;
-    // Go to single player categories screen
-    router.push('/categoriesScreen');
+    // Go to the new singleplayer screen
+    router.push('/singleplayerScreen');
   };
 
   const handleMultiplayer = () => {
@@ -64,81 +65,84 @@ export default function HomeScreen() {
     await clearPlayer();
     setPlayer(null);
     setModalVisible(true);
+    // Clear form fields
+    setEmail('');
+    setName('');
+    setPassword('');
+    setIsRegister(false);
   };
 
   return (
     <View style={styles.container}>
       {player && (
-        <View style={{ width: '80%', marginTop: 50 }}>
-          <Button title="Single Player" onPress={handleSinglePlayer} />
-          <View style={{ height: 10 }} />
-          <Button title="Multiplayer" onPress={handleMultiplayer} />
-          <View style={{ height: 10 }} />
-          <Button title="Disconnect" color="red" onPress={handleDisconnect} />
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity style={styles.mainButton} onPress={handleSinglePlayer}>
+            <Text style={styles.mainButtonText}>Single Player</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.mainButton} onPress={handleMultiplayer}>
+            <Text style={styles.mainButtonText}>Multiplayer</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.disconnectButton} onPress={handleDisconnect}>
+            <Text style={styles.disconnectButtonText}>Disconnect</Text>
+          </TouchableOpacity>
         </View>
       )}
 
       {/* Login/Register Modal */}
       <Modal visible={modalVisible} transparent animationType="slide">
-        <View style={styles.modalContainer}>
-          <Text style={{ fontSize: 18, marginBottom: 10 }}>
-            {isRegister ? 'Register' : 'Login'}
-          </Text>
-
-          {isRegister && (
-            <TextInput
-              placeholder="Name"
-              value={name}
-              onChangeText={setName}
-              style={styles.input}
-            />
-          )}
-
-          <TextInput
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            style={styles.input}
-          />
-          <TextInput
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            style={styles.input}
-          />
-
-          <Button title={isRegister ? 'Register' : 'Login'} onPress={handleLoginOrRegister} />
-
-          <TouchableOpacity onPress={() => setIsRegister(!isRegister)} style={{ marginTop: 10 }}>
-            <Text style={{ color: '#007AFF' }}>
-              {isRegister ? 'Already have an account? Login' : 'No account? Register'}
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>
+              {isRegister ? 'Create Account' : 'Welcome Back'}
             </Text>
-          </TouchableOpacity>
+
+            {isRegister && (
+              <TextInput
+                placeholder="Name"
+                value={name}
+                onChangeText={setName}
+                style={styles.input}
+                placeholderTextColor="#888"
+              />
+            )}
+
+            <TextInput
+              placeholder="Email"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              style={styles.input}
+              placeholderTextColor="#888"
+            />
+            <TextInput
+              placeholder="Password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              style={styles.input}
+              placeholderTextColor="#888"
+            />
+
+            <TouchableOpacity style={styles.authButton} onPress={handleLoginOrRegister}>
+              <Text style={styles.authButtonText}>
+                {isRegister ? 'Create Account' : 'Login'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.switchAuthButton} 
+              onPress={() => setIsRegister(!isRegister)}
+            >
+              <Text style={styles.switchAuthButtonText}>
+                {isRegister ? 'Already have an account? Login' : 'No account? Create one'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#000000aa',
-    padding: 20,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    width: '80%',
-    marginBottom: 10,
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: 'white',
-  },
-});

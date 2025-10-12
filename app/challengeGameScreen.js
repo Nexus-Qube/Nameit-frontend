@@ -8,13 +8,32 @@ import {
   Modal,
   TouchableOpacity,
   Alert,
+  Dimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { getSocket, removeGameListeners } from "../services/socket"; // ← CHANGED IMPORT
+import { getSocket, removeGameListeners } from "../services/socket";
 import { fetchTopicById, fetchItemsByTopic } from "../services/api";
+import { useGameLogic } from "../hooks/useGameLogic";
+import { scrollToItem } from "../helpers/scrollHelpers";
+import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelpers";
+import { initializeGameItems } from "../helpers/gameLogicHelpers";
+import { PLAYER_COLORS, getColorById } from "../constants/PlayerColors";
 import styles from "../styles/GameScreenStyles";
-import solvedBorder from "../assets/images/solved_border.png";
-import itemUnsolved from "../assets/images/item_unsolved.png"; // Add this line
+import itemUnsolved from "../assets/images/item_unsolved.png";
+
+// Import all colored borders
+const COLORED_BORDERS = {
+  red: require("../assets/images/solved_border_red.png"),
+  orange: require("../assets/images/solved_border_orange.png"),
+  yellow: require("../assets/images/solved_border_yellow.png"),
+  green: require("../assets/images/solved_border_green.png"),
+  teal: require("../assets/images/solved_border_teal.png"),
+  blue: require("../assets/images/solved_border_blue.png"),
+  purple: require("../assets/images/solved_border_purple.png"),
+  pink: require("../assets/images/solved_border_pink.png"),
+  brown: require("../assets/images/solved_border_brown.png"),
+  gray: require("../assets/images/solved_border_gray.png"),
+};
 
 // Default sprite sheet info
 const DEFAULT_SPRITE_SIZE = 120;
@@ -24,6 +43,9 @@ const DEFAULT_SHEET_WIDTH = 2381;
 const DEFAULT_SHEET_HEIGHT = 2180;
 
 export default function ChallengeGameScreen() {
+  const { width } = Dimensions.get('window');
+  const itemWidth = width >= 400 ? 120 : '30%';
+
   const params = useLocalSearchParams();
   const router = useRouter();
 
@@ -43,7 +65,6 @@ export default function ChallengeGameScreen() {
   const [gameOver, setGameOver] = useState(false);
   const [winner, setWinner] = useState(null);
   const [input, setInput] = useState("");
-  const [items, setItems] = useState([]);
   const [spriteInfo, setSpriteInfo] = useState({
     spriteSize: DEFAULT_SPRITE_SIZE,
     margin: DEFAULT_MARGIN,
@@ -56,7 +77,8 @@ export default function ChallengeGameScreen() {
   const [statusMessage, setStatusMessage] = useState(
     "Answer before time runs out"
   );
-  const [playerSolvedCount, setPlayerSolvedCount] = useState(0);
+  const [playerColors, setPlayerColors] = useState({}); // Store playerId -> color mapping
+  const [myColor, setMyColor] = useState(null); // Current player's color
 
   const scrollRef = useRef(null);
   const itemRefs = useRef({});
@@ -64,8 +86,11 @@ export default function ChallengeGameScreen() {
   const intervalRef = useRef(null);
   const hasLeftRef = useRef(false);
 
-  const socket = getSocket(); // ← CHANGED: Single socket instance
+  const socket = getSocket();
   currentTurnRef.current = currentTurnPlayer.id;
+
+  // Custom hooks
+  const { items, setItems, playerSolvedCount, handleItemMatch, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
 
   const localSheets = {
     3: {
@@ -84,6 +109,7 @@ export default function ChallengeGameScreen() {
   const clearTimer = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
   };
+  
   const startTimer = () => {
     clearTimer();
     setTimer(turnTime);
@@ -127,20 +153,7 @@ export default function ChallengeGameScreen() {
         });
 
         const itemsData = await fetchItemsByTopic(topicId);
-
-        let sortedItems = [...itemsData];
-        if (topicData.sort_field === "order") {
-          sortedItems.sort((a, b) => (a.attributes?.order ?? 0) - (b.attributes?.order ?? 0));
-        } else if (topicData.sort_field === "name") {
-          sortedItems.sort((a, b) => a.name.localeCompare(b.name));
-        }
-
-        const initializedItems = sortedItems.map((item, index) => ({
-          ...item,
-          solved: false,
-          order: item.attributes?.order ?? index + 1,
-        }));
-
+        const initializedItems = initializeGameItems(itemsData, topicData);
         setItems(initializedItems);
       } catch (err) {
         console.error("Error fetching topic/items:", err);
@@ -154,43 +167,55 @@ export default function ChallengeGameScreen() {
   useEffect(() => {
     console.log(`🎮 Joining game - Lobby: ${lobbyId}, Player: ${playerId}, First Turn: ${firstTurnPlayerId}`);
     
-    // CHANGED: Use joinGame to update socket ID and join game room
     socket.emit("joinGame", { lobbyId, playerId, playerName: params.playerName });
 
-    const handleInitItems = ({ solvedItems }) => {
-      console.log(`📦 Received initItems with ${solvedItems.length} solved items`);
+    const handleInitItems = ({ solvedItems, players }) => {
+      console.log(`📦 Received initItems with ${solvedItems.length} solved items and players:`, players);
+      
+      // Update player colors mapping
+      if (players && Array.isArray(players)) {
+        const colorMap = {};
+        players.forEach(player => {
+          colorMap[player.id] = player.color;
+          if (String(player.id) === String(playerId)) {
+            setMyColor(player.color);
+          }
+        });
+        setPlayerColors(colorMap);
+      }
+      
       setItems((prev) =>
         prev.map((item) => (solvedItems.includes(item.id) ? { ...item, solved: true } : item))
       );
     };
 
-    const handleItemSolved = ({ itemId }) => {
-      console.log(`✅ Item ${itemId} solved`);
+    const handleItemSolved = ({ itemId, solvedBy }) => {
+      console.log(`✅ Item ${itemId} solved by player ${solvedBy}`);
+      
       setItems((prev) =>
-        prev.map((item) => (item.id === itemId ? { ...item, solved: true } : item))
+        prev.map((item) => (item.id === itemId ? { ...item, solved: true, solvedBy } : item))
       );
 
-      // Scroll to item
+      // Removed flip animation, just scroll to item
       setTimeout(() => {
-        const ref = itemRefs.current[itemId];
-        if (ref?.measureLayout && scrollRef.current) {
-          ref.measureLayout(
-            scrollRef.current,
-            (x, y) => {
-              scrollRef.current.scrollTo({
-                y: Math.max(0, y - 10),
-                animated: true,
-              });
-            },
-            (err) => console.warn("measureLayout error:", err)
-          );
-        }
-      }, 50);
+        scrollToItem(itemRefs, scrollRef, itemId);
+      }, 100);
     };
 
-    const handleTurnChanged = ({ currentTurnId, currentTurnName, timeLeft }) => {
+    const handleTurnChanged = ({ currentTurnId, currentTurnName, timeLeft, players }) => {
       console.log(`🔄 Turn changed to player ${currentTurnId} (${currentTurnName})`);
-      console.log(`🔍 Frontend - Current turn: ${currentTurnId} (type: ${typeof currentTurnId}), Player: ${playerId} (type: ${typeof playerId})`);
+      
+      // Update player colors if provided
+      if (players && Array.isArray(players)) {
+        const colorMap = {};
+        players.forEach(player => {
+          colorMap[player.id] = player.color;
+          if (String(player.id) === String(playerId)) {
+            setMyColor(player.color);
+          }
+        });
+        setPlayerColors(colorMap);
+      }
       
       setCurrentTurnPlayer({
         id: Number(currentTurnId),
@@ -214,10 +239,8 @@ export default function ChallengeGameScreen() {
 
     const handlePlayerLeft = ({ playerId, playerName }) => {
       console.log(`❌ Player ${playerName} left the game`);
-      // You can update UI to show player left if needed
     };
 
-    // Add listeners
     socket.on("initItems", handleInitItems);
     socket.on("itemSolved", handleItemSolved);
     socket.on("turnChanged", handleTurnChanged);
@@ -227,10 +250,8 @@ export default function ChallengeGameScreen() {
     startTimer();
 
     return () => {
-      // CHANGED: Remove game listeners but keep socket connection
       removeGameListeners();
       clearTimer();
-      // CHANGED: Don't close the socket - it's shared with waiting room
     };
   }, [lobbyId, playerId]);
 
@@ -238,27 +259,12 @@ export default function ChallengeGameScreen() {
   const handleInputChange = (text) => {
     setInput(text);
     
-    // Debug log for turn checking
-    console.log(`🔍 Frontend - Current turn: ${currentTurnPlayer.id} (type: ${typeof currentTurnPlayer.id}), Player: ${playerId} (type: ${typeof playerId})`);
+    const matched = handleItemMatch(text, currentTurnPlayer.id, playerId, gameOver);
     
-    if (Number(currentTurnPlayer.id) !== Number(playerId) || gameOver) {
-      console.log(`⚠️ Not your turn! Current: ${currentTurnPlayer.id}, You: ${playerId}`);
-      return;
-    }
-
-    const matched = items.find(
-      (item) =>
-        !item.solved &&
-        item.name.toLowerCase() === text.trim().toLowerCase()
-    );
-
     if (matched) {
       console.log(`🎯 Matched item: ${matched.name}`);
-      setItems((prev) =>
-        prev.map((item) => (item.id === matched.id ? { ...item, solved: true } : item))
-      );
       setInput("");
-      setPlayerSolvedCount((c) => c + 1);
+      incrementPlayerSolvedCount();
       socket.emit("buttonPress", {
         lobbyId,
         playerId,
@@ -268,29 +274,16 @@ export default function ChallengeGameScreen() {
     }
   };
 
-  const solvedCount = items.filter((item) => item.solved).length;
-
-  // --- Sprite positioning ---
-  function getSpritePosition(order) {
-    const index = order - 1;
-    const row = Math.floor(index / spriteInfo.spritesPerRow);
-    const col = index % spriteInfo.spritesPerRow;
-    const left = 1 + col * (spriteInfo.spriteSize + spriteInfo.margin);
-    const top = 1 + row * (spriteInfo.spriteSize + spriteInfo.margin);
-    return { left, top };
-  }
-
   // --- Return to lobby ---
   const handleReturnToLobby = () => {
-    // Prevent returning to lobby if it's still your turn and game isn't over
-  if (currentTurnPlayer.id === playerId && !gameOver && timer > 0) {
-    Alert.alert(
-      "Still Your Turn",
-      "You cannot return to lobby during your turn. Wait for your turn to end or let the timer expire.",
-      [{ text: "OK" }]
-    );
-    return;
-  }
+    if (currentTurnPlayer.id === playerId && !gameOver && timer > 0) {
+      Alert.alert(
+        "Still Your Turn",
+        "You cannot return to lobby during your turn. Wait for your turn to end or let the timer expire.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
   
     hasLeftRef.current = true;
     clearTimer();
@@ -298,10 +291,7 @@ export default function ChallengeGameScreen() {
     setWinner(null);
     setModalVisible(false);
     
-    // CHANGED: Use returnToWaitingRoom instead of leaveGame
     socket.emit("returnToWaitingRoom", { lobbyId, playerId });
-    
-    // Remove game listeners
     removeGameListeners();
     
     router.replace({
@@ -322,18 +312,33 @@ export default function ChallengeGameScreen() {
     setWinner(null);
     setModalVisible(false);
     
-    // Use leaveGame for manual exit (not returning to waiting room)
     socket.emit("leaveGame", { lobbyId, playerId });
-    
-    // Remove game listeners
     removeGameListeners();
     
     router.replace("/lobbiesScreen");
   };
 
+  // Get the appropriate border image based on player color
+  const getBorderImage = (solvedByPlayerId) => {
+    const colorId = playerColors[solvedByPlayerId];
+    if (!colorId) return null;
+    
+    const color = getColorById(colorId);
+    if (!color || !color.name) return null;
+    
+    const colorName = color.name.toLowerCase();
+    return COLORED_BORDERS[colorName];
+  };
+
+  // Get color display for current player
+  const getMyColorDisplay = () => {
+    if (!myColor) return "No color selected";
+    const color = getColorById(myColor);
+    return color ? color.display : "No color";
+  };
+
   return (
     <View style={{ flex: 1, padding: 20 }}>
-      {/* --- TOP ROW --- */}
       <View style={styles.topRow}>
         <View style={styles.rowLeft}>
           <TouchableOpacity onPress={handleReturnToLobby}>
@@ -361,7 +366,6 @@ export default function ChallengeGameScreen() {
         </View>
       </View>
 
-      {/* --- BOTTOM ROW --- */}
       <View style={styles.bottomRow}>
         <View style={styles.rowLeft}>
           <Text style={styles.countdown}>{timer}s</Text>
@@ -381,13 +385,19 @@ export default function ChallengeGameScreen() {
         </View>
 
         <View style={styles.rowRight}>
-          <Text style={styles.counter}>
-            You solved {playerSolvedCount}
-          </Text>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={styles.counter}>
+              You solved {playerSolvedCount}
+            </Text>
+            {myColor && (
+              <Text style={{ color: '#fff', fontSize: 12, marginTop: 2 }}>
+                Your color: {getMyColorDisplay()}
+              </Text>
+            )}
+          </View>
         </View>
       </View>
 
-      {/* --- INPUT --- */}
       <TextInput
         placeholder={
           currentTurnPlayer.id === playerId
@@ -405,77 +415,70 @@ export default function ChallengeGameScreen() {
         editable={currentTurnPlayer.id === playerId && !gameOver}
       />
 
-      {/* --- GRID --- */}
-      <ScrollView contentContainerStyle={styles.grid} ref={scrollRef}>
-  {items.map((item) => {
-    const { left, top } = getSpritePosition(item.order);
-    const isSolvedOrGameOver = item.solved || gameOver;
-    
-    const spriteSize = spriteInfo.spriteSize || DEFAULT_SPRITE_SIZE;
-    const containerSize = 100;
-    const scale = containerSize / spriteSize;
+      <ScrollView 
+        contentContainerStyle={styles.grid} 
+        ref={scrollRef}
+        showsVerticalScrollIndicator={true}
+      >
+        {items.map((item) => {
+          const { left, top } = getSpritePosition(item.order, spriteInfo);
+          const isSolvedOrGameOver = item.solved || gameOver;
+          const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
+          const borderImage = item.solvedBy ? getBorderImage(item.solvedBy) : null;
 
-    return (
-      <View key={item.id} style={styles.itemContainer}>
-        {/* Outer container for the border */}
-        <View style={styles.outerContainer}>
-          {/* Inner container for the image */}
-          <View
-            style={styles.itemSquare}
-            ref={(ref) => (itemRefs.current[item.id] = ref)}
-          >
-            {/* Show unsolved background image if item is not solved */}
-            {!item.solved && (
-              <Image 
-                source={itemUnsolved}
-                style={styles.unsolvedBackground}
-              />
-            )}
-            
-            {/* Show sprite image if item is solved */}
-            {item.solved && spriteInfo.sheetUrl ? (
-              <View style={styles.imageContainer}>
-                <Image
-                  source={spriteInfo.sheetUrl}
-                  style={{
-                    width: spriteInfo.sheetWidth * scale,
-                    height: spriteInfo.sheetHeight * scale,
-                    transform: [
-                      { translateX: -left * scale },
-                      { translateY: -top * scale },
-                    ],
-                  }}
-                />
+          return (
+            <View key={item.id} style={[styles.itemContainer, { width: itemWidth }]}>
+              <View style={styles.outerContainer}>
+                <View 
+                  style={styles.imageContainer}
+                  ref={(ref) => (itemRefs.current[item.id] = ref)}
+                >
+                  {/* Show unsolved background or solved sprite */}
+                  {!item.solved ? (
+                    <Image 
+                      source={itemUnsolved}
+                      style={styles.unsolvedBackground}
+                    />
+                  ) : (
+                    <Image
+                      source={spriteInfo.sheetUrl}
+                      style={{
+                        width: spriteInfo.sheetWidth * scale,
+                        height: spriteInfo.sheetHeight * scale,
+                        transform: [
+                          { translateX: -left * scale },
+                          { translateY: -top * scale },
+                        ],
+                      }}
+                    />
+                  )}
+                </View>
+                
+                {/* Colored border overlay - only for solved items */}
+                {item.solved && borderImage && (
+                  <Image 
+                    source={borderImage}
+                    style={styles.borderOverlay}
+                  />
+                )}
               </View>
-            ) : null}
-          </View>
-          
-          {/* Border overlay - only for solved items */}
-          {item.solved && (
-            <Image 
-              source={solvedBorder}
-              style={styles.borderOverlay}
-            />
-          )}
-        </View>
 
-        {isSolvedOrGameOver && (
-          <Text
-            style={{
-              color: item.solved ? "#fff" : "gray",
-              textAlign: "center",
-              marginTop: 4,
-            }}
-          >
-            {item.name}
-          </Text>
-        )}
-      </View>
-    );
-  })}
-</ScrollView>
+              {isSolvedOrGameOver && (
+                <Text
+                  style={{
+                    color: item.solved ? "#fff" : "gray",
+                    textAlign: "center",
+                    marginTop: 4,
+                  }}
+                >
+                  {item.name}
+                </Text>
+              )}
+            </View>
+          );
+        })}
+      </ScrollView>
 
-      {/* --- MODAL --- */}
       <Modal visible={modalVisible} transparent animationType="fade">
         <View style={styles.modalBackground}>
           <View style={styles.modalContent}>

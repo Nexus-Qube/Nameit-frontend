@@ -3,26 +3,30 @@ import {
   View,
   Text,
   TextInput,
-  StyleSheet,
   FlatList,
   ActivityIndicator,
   TouchableOpacity,
   Modal,
   Alert,
+  SectionList,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { fetchAllLobbies, createLobby, joinLobby } from '../services/api'; // <- updated
+import { fetchAllLobbies, createLobby, joinLobby, fetchCategories } from '../services/api';
 import { getPlayer } from '../services/session';
+import styles from '../styles/LobbiesScreenStyles';
 
 export default function LobbiesScreen() {
   const router = useRouter();
 
   const [lobbies, setLobbies] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [categories, setCategories] = useState([]);
 
-  // Create lobby modal
+  // Create lobby modals
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [topicModalVisible, setTopicModalVisible] = useState(false);
   const [newLobbyName, setNewLobbyName] = useState('');
+  const [selectedTopic, setSelectedTopic] = useState(null);
 
   // Join lobby modal
   const [joinModalVisible, setJoinModalVisible] = useState(false);
@@ -31,24 +35,28 @@ export default function LobbiesScreen() {
 
   const [player, setPlayer] = useState(null);
 
-  // Load player session
+  // Load player session and categories
   useEffect(() => {
-    async function loadPlayer() {
+    async function loadData() {
       const p = await getPlayer();
       if (!p?.id) {
         Alert.alert('Error', 'You must be logged in first.');
-        router.push('/'); // redirect to login
+        router.push('/');
         return;
       }
       setPlayer(p);
+
+      // Load categories for topic selection
+      const cats = await fetchCategories();
+      setCategories(cats);
     }
-    loadPlayer();
+    loadData();
   }, []);
 
   // Fetch all lobbies
   const loadLobbies = async () => {
     setLoading(true);
-    const data = await fetchAllLobbies(); // <- returns all lobbies with topic info, ordered newest
+    const data = await fetchAllLobbies();
     setLobbies(data || []);
     setLoading(false);
   };
@@ -57,18 +65,47 @@ export default function LobbiesScreen() {
     if (player) loadLobbies();
   }, [player]);
 
-  // Handle creating a new lobby
+  // Group lobbies by topic
+  const groupedLobbies = lobbies.reduce((acc, lobby) => {
+    const topicName = lobby.topic?.name || 'No Topic';
+    if (!acc[topicName]) {
+      acc[topicName] = [];
+    }
+    acc[topicName].push(lobby);
+    return acc;
+  }, {});
+
+  // Convert to SectionList format
+  const sectionData = Object.keys(groupedLobbies).map(topicName => ({
+    title: topicName,
+    data: groupedLobbies[topicName],
+  }));
+
+  // Handle creating a new lobby - step 1: show topic selection
+  const handleCreateLobby = () => {
+    setCreateModalVisible(true);
+  };
+
+  // Handle topic selection - step 2: show name input
+  const handleTopicSelect = (topic) => {
+    setSelectedTopic(topic);
+    setTopicModalVisible(true);
+    setCreateModalVisible(false);
+  };
+
+  // Handle final lobby creation
   const handleCreateConfirm = async () => {
     if (!newLobbyName.trim()) {
       Alert.alert('Error', 'Please enter a lobby name');
       return;
     }
 
-    const lobby = await createLobby(null, newLobbyName.trim(), player.id); // topicId optional
+    const lobby = await createLobby(selectedTopic.id, newLobbyName.trim(), player.id);
     if (!lobby) return;
 
-    setCreateModalVisible(false);
+    setTopicModalVisible(false);
     setNewLobbyName('');
+    setSelectedTopic(null);
     loadLobbies();
   };
 
@@ -111,7 +148,7 @@ export default function LobbiesScreen() {
   const renderLobby = ({ item }) => (
     <View style={styles.lobbyItem}>
       <Text style={styles.lobbyText}>
-        {item.code} - {item.name} ({item.topic?.name || 'No topic'})
+        {item.code} - {item.name} ({item.players?.length || 0} players)
       </Text>
       <TouchableOpacity
         style={styles.joinButton}
@@ -122,13 +159,39 @@ export default function LobbiesScreen() {
     </View>
   );
 
+  const renderSectionHeader = ({ section: { title } }) => (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionHeaderText}>{title}</Text>
+    </View>
+  );
+
+  const renderTopicItem = ({ item }) => (
+    <TouchableOpacity
+      style={styles.topicItem}
+      onPress={() => handleTopicSelect(item)}
+    >
+      <Text style={styles.topicText}>{item.name}</Text>
+    </TouchableOpacity>
+  );
+
   return (
     <View style={styles.container}>
+      {/* Header with back button */}
+      <View style={styles.header}>
+  <TouchableOpacity 
+    style={styles.backButton}
+    onPress={() => router.push('/')}
+  >
+    <Text style={styles.backButtonText}>← Back</Text>
+  </TouchableOpacity>
+  <Text style={styles.title}>Multiplayer Lobbies</Text>
+</View>
+
       <Text style={styles.label}>Hello, {player?.name || 'Player'}!</Text>
 
       <TouchableOpacity
         style={styles.createButton}
-        onPress={() => setCreateModalVisible(true)}
+        onPress={handleCreateLobby}
       >
         <Text style={{ color: 'white' }}>Create New Lobby</Text>
       </TouchableOpacity>
@@ -139,15 +202,16 @@ export default function LobbiesScreen() {
       ) : lobbies.length === 0 ? (
         <Text style={{ marginTop: 10, color: '#007AFF' }}>No lobbies found. Create one!</Text>
       ) : (
-        <FlatList
-          data={lobbies}
+        <SectionList
+          sections={sectionData}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderLobby}
+          renderSectionHeader={renderSectionHeader}
           style={{ width: '100%', marginTop: 10 }}
         />
       )}
 
-      {/* Create Lobby Modal */}
+      {/* Topic Selection Modal */}
       <Modal
         visible={createModalVisible}
         transparent={true}
@@ -156,7 +220,38 @@ export default function LobbiesScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>New Lobby Name</Text>
+            <Text style={styles.modalTitle}>Select Topic</Text>
+            <FlatList
+              data={categories.flatMap(cat => cat.topics || [])}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={renderTopicItem}
+              style={{ maxHeight: 400 }}
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: '#ccc' }]}
+                onPress={() => setCreateModalVisible(false)}
+              >
+                <Text>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Lobby Name Input Modal */}
+      <Modal
+        visible={topicModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setTopicModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Create Lobby</Text>
+            <Text style={{ color: '#007AFF', marginBottom: 10 }}>
+              Topic: {selectedTopic?.name}
+            </Text>
             <TextInput
               placeholder="Enter lobby name"
               placeholderTextColor="#888"
@@ -173,7 +268,7 @@ export default function LobbiesScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, { backgroundColor: '#ccc' }]}
-                onPress={() => setCreateModalVisible(false)}
+                onPress={() => setTopicModalVisible(false)}
               >
                 <Text>Cancel</Text>
               </TouchableOpacity>
@@ -222,63 +317,3 @@ export default function LobbiesScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#000' },
-  label: { fontWeight: 'bold', marginBottom: 10, color: '#007AFF' },
-  subTitle: { marginVertical: 15, fontWeight: 'bold', color: '#007AFF' },
-  lobbyItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#007AFF',
-    borderRadius: 8,
-    width: '100%',
-  },
-  lobbyText: { flex: 1, color: '#007AFF' },
-  joinButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 5,
-  },
-  createButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    marginBottom: 15,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    width: '80%',
-    backgroundColor: '#111',
-    padding: 20,
-    borderRadius: 10,
-  },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center', color: '#007AFF' },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#007AFF',
-    padding: 10,
-    marginBottom: 10,
-    borderRadius: 5,
-    color: '#fff',
-    backgroundColor: '#000',
-  },
-  modalButtons: { flexDirection: 'row', justifyContent: 'space-between' },
-  modalButton: {
-    flex: 1,
-    padding: 10,
-    marginHorizontal: 5,
-    borderRadius: 5,
-    alignItems: 'center',
-  },
-});
