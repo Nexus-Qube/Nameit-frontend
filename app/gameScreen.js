@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   Modal,
   TouchableOpacity,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { fetchTopicById, fetchItemsByTopic } from '../services/api';
@@ -29,12 +31,37 @@ const DEFAULT_SHEET_HEIGHT = 2180;
 
 export default function GameScreen() {
   const { width } = Dimensions.get('window');
-  const itemWidth = width >= 400 ? 120 : '30%';
-
   const { topicId, mode } = useLocalSearchParams();
   const router = useRouter();
 
-  const [input, setInput] = useState(""); // ADD THIS LINE - input state was missing
+  // Use useMemo for layout calculations to prevent re-renders
+  const { itemWidth, calculatedItemsPerRow } = useMemo(() => {
+    const minItemsPerRow = 3;
+    const maxItemWidth = 120; // Locked max width
+    const containerPadding = 40; // 20px on each side
+    const itemMargin = 8; // Total horizontal margin per item (4px on each side)
+
+    // First, calculate how many items would fit if we use maxItemWidth
+    const maxPossibleItems = Math.floor((width - containerPadding) / (maxItemWidth + itemMargin));
+
+    // Use at least minItemsPerRow, but more if screen is wide enough
+    const calculatedItemsPerRow = Math.max(minItemsPerRow, maxPossibleItems);
+
+    // Calculate the available width for items (total width minus padding and margins)
+    const availableWidth = width - containerPadding - (calculatedItemsPerRow * itemMargin);
+
+    // Calculate item width, but don't exceed maxItemWidth
+    const itemWidth = Math.min(
+      maxItemWidth,
+      Math.floor(availableWidth / calculatedItemsPerRow)
+    );
+
+    console.log('Screen width:', width, 'Items per row:', calculatedItemsPerRow, 'Item width:', itemWidth);
+    
+    return { itemWidth, calculatedItemsPerRow };
+  }, [width]); // Only recalculate when width changes
+
+  const [input, setInput] = useState("");
   const [time, setTime] = useState(mode === "countdown" ? 60 : 0);
   const [gameOver, setGameOver] = useState(false);
   const [spriteInfo, setSpriteInfo] = useState({
@@ -128,6 +155,7 @@ export default function GameScreen() {
     }
   }, [solvedCount, items, mode]);
 
+  
   // --- Handle input ---
   const handleInputChange = (text) => {
     setInput(text);
@@ -144,9 +172,9 @@ export default function GameScreen() {
         setTime(prev => prev + 5);
       }
 
-      // Scroll to the solved item (no flip animation)
+      // Scroll to the solved item - PASS THE ITEMS ARRAY
       setTimeout(() => {
-        scrollToItem(itemRefs, scrollRef, matched.id);
+        scrollToItem(itemRefs, scrollRef, matched.id, items); // Add items here
       }, 100);
     }
   };
@@ -173,147 +201,155 @@ export default function GameScreen() {
   };
 
   return (
-    <View style={{ flex: 1, padding: 20 }}>
-      {/* Top Row */}
-      <View style={styles.topRow}>
-        <View style={styles.rowLeft}>
-          <TouchableOpacity onPress={handleExitGame}>
-            <Text style={{ color: "blue", fontSize: 16 }}>Exit Game</Text>
-          </TouchableOpacity>
+    <KeyboardAvoidingView 
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+    >
+      <View style={{ flex: 1, padding: 20 }}>
+        {/* Top Row */}
+        <View style={styles.topRow}>
+          <View style={styles.rowLeft}>
+            <TouchableOpacity onPress={handleExitGame}>
+              <Text style={{ color: "blue", fontSize: 16 }}>Exit Game</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.rowSection}>
+            <Text style={styles.counter}>
+              {solvedCount} / {items.length}
+            </Text>
+          </View>
+
+          <View style={styles.rowRight}>
+            <Text style={styles.countdown}>
+              {mode === "countdown" ? `${time}s` : formatTime(time)}
+            </Text>
+          </View>
         </View>
 
-        <View style={styles.rowSection}>
-          <Text style={styles.counter}>
-            {solvedCount} / {items.length}
-          </Text>
+        {/* Player Stats Row */}
+        <View style={styles.bottomRow}>
+          <View style={styles.rowSection}>
+            <Text style={styles.counter}>
+              You solved {playerSolvedCount}
+            </Text>
+          </View>
         </View>
 
-        <View style={styles.rowRight}>
-          <Text style={styles.countdown}>
-            {mode === "countdown" ? `${time}s` : formatTime(time)}
-          </Text>
-        </View>
-      </View>
+        {/* Input Field */}
+        <TextInput
+          placeholder="Type item name..."
+          value={input}
+          onChangeText={handleInputChange}
+          style={styles.input}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!gameOver}
+        />
 
-      {/* Player Stats Row */}
-      <View style={styles.bottomRow}>
-        <View style={styles.rowSection}>
-          <Text style={styles.counter}>
-            You solved {playerSolvedCount}
-          </Text>
-        </View>
-      </View>
+        {/* Game Grid */}
+        <ScrollView 
+          contentContainerStyle={styles.grid} 
+          ref={scrollRef}
+          showsVerticalScrollIndicator={true}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {items.map((item) => {
+            const { left, top } = getSpritePosition(item.order, spriteInfo);
+            const isSolvedOrGameOver = item.solved || gameOver;
+            
+            const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
 
-      {/* Input Field */}
-      <TextInput
-        placeholder="Type item name..."
-        value={input}
-        onChangeText={handleInputChange}
-        style={styles.input}
-        autoCapitalize="none"
-        autoCorrect={false}
-        editable={!gameOver}
-      />
-
-      {/* Game Grid */}
-      <ScrollView 
-        contentContainerStyle={styles.grid} 
-        ref={scrollRef}
-        showsVerticalScrollIndicator={true}
-      >
-        {items.map((item) => {
-          const { left, top } = getSpritePosition(item.order, spriteInfo);
-          const isSolvedOrGameOver = item.solved || gameOver;
-          
-          const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
-
-          return (
-            <View key={item.id} style={[styles.itemContainer, { width: itemWidth }]}>
-              <View style={styles.outerContainer}>
-                <View 
-                  style={styles.imageContainer}
-                  ref={(ref) => (itemRefs.current[item.id] = ref)}
-                >
-                  {/* Show unsolved background or solved sprite */}
-                  {!item.solved ? (
+            return (
+              <View key={item.id} style={[styles.itemContainer, { width: itemWidth }]}>
+                <View style={styles.outerContainer}>
+                  <View 
+                    style={styles.imageContainer}
+                    ref={(ref) => (itemRefs.current[item.id] = ref)}
+                  >
+                    {/* Show unsolved background or solved sprite */}
+                    {!item.solved ? (
+                      <Image 
+                        source={itemUnsolved}
+                        style={styles.unsolvedBackground}
+                      />
+                    ) : (
+                      <Image
+                        source={spriteInfo.sheetUrl}
+                        style={{
+                          width: spriteInfo.sheetWidth * scale,
+                          height: spriteInfo.sheetHeight * scale,
+                          transform: [
+                            { translateX: -left * scale },
+                            { translateY: -top * scale },
+                          ],
+                        }}
+                      />
+                    )}
+                  </View>
+                  
+                  {/* Border overlay - only for solved items */}
+                  {item.solved && (
                     <Image 
-                      source={itemUnsolved}
-                      style={styles.unsolvedBackground}
-                    />
-                  ) : (
-                    <Image
-                      source={spriteInfo.sheetUrl}
-                      style={{
-                        width: spriteInfo.sheetWidth * scale,
-                        height: spriteInfo.sheetHeight * scale,
-                        transform: [
-                          { translateX: -left * scale },
-                          { translateY: -top * scale },
-                        ],
-                      }}
+                      source={solvedBorder}
+                      style={styles.borderOverlay}
                     />
                   )}
                 </View>
-                
-                {/* Border overlay - only for solved items */}
-                {item.solved && (
-                  <Image 
-                    source={solvedBorder}
-                    style={styles.borderOverlay}
-                  />
+
+                {isSolvedOrGameOver && (
+                  <Text
+                    style={{
+                      color: item.solved ? "#fff" : "gray",
+                      textAlign: "center",
+                      marginTop: 4,
+                    }}
+                  >
+                    {item.name}
+                  </Text>
                 )}
               </View>
+            );
+          })}
+        </ScrollView>
 
-              {isSolvedOrGameOver && (
-                <Text
-                  style={{
-                    color: item.solved ? "#fff" : "gray",
-                    textAlign: "center",
-                    marginTop: 4,
-                  }}
-                >
-                  {item.name}
+        {/* Game Over Modal */}
+        <Modal visible={gameOver} transparent animationType="fade">
+          <View style={styles.modalBackground}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Game Over</Text>
+              
+              {mode === "countdown" ? (
+                <Text style={styles.modalText}>
+                  You got {solvedCount} / {items.length} correct!
+                </Text>
+              ) : (
+                <Text style={styles.modalText}>
+                  Completed in {formatTime(time)}!
                 </Text>
               )}
+              
+              <Text style={styles.modalText}>
+                You solved {playerSolvedCount} items
+              </Text>
+
+              <TouchableOpacity onPress={handleRestartGame} style={styles.modalButton}>
+                <Text style={{ color: "blue", fontSize: 16 }}>
+                  Play Again
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={handleExitGame} style={styles.modalButton}>
+                <Text style={{ color: "red", fontSize: 16 }}>
+                  Exit Game
+                </Text>
+              </TouchableOpacity>
             </View>
-          );
-        })}
-      </ScrollView>
-
-      {/* Game Over Modal */}
-      <Modal visible={gameOver} transparent animationType="fade">
-        <View style={styles.modalBackground}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Game Over</Text>
-            
-            {mode === "countdown" ? (
-              <Text style={styles.modalText}>
-                You got {solvedCount} / {items.length} correct!
-              </Text>
-            ) : (
-              <Text style={styles.modalText}>
-                Completed in {formatTime(time)}!
-              </Text>
-            )}
-            
-            <Text style={styles.modalText}>
-              You solved {playerSolvedCount} items
-            </Text>
-
-            <TouchableOpacity onPress={handleRestartGame} style={styles.modalButton}>
-              <Text style={{ color: "blue", fontSize: 16 }}>
-                Play Again
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={handleExitGame} style={styles.modalButton}>
-              <Text style={{ color: "red", fontSize: 16 }}>
-                Exit Game
-              </Text>
-            </TouchableOpacity>
           </View>
-        </View>
-      </Modal>
-    </View>
+        </Modal>
+      </View>
+    </KeyboardAvoidingView>
   );
 }

@@ -1,5 +1,10 @@
 {
   "spriteSheets": {
+    "1": {
+      "fileName": "NBA120.png",
+      "width": 606,
+      "height": 727
+    },
     "3": {
       "fileName": "spritesheet_pokemon21.png",
       "width": 3871,

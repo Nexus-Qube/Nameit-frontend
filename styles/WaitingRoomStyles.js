@@ -1,4 +1,6 @@
-import { StyleSheet } from "react-native";
+import { StyleSheet, Dimensions } from "react-native";
+
+const { width } = Dimensions.get('window');
 
 export default StyleSheet.create({
   container: {
@@ -84,7 +86,7 @@ export default StyleSheet.create({
     color: "#FF3B30",
   },
   rulesContainer: {
-    minHeight: 150,
+    // Remove minHeight to let it fit content naturally
   },
   ruleItem: {
     marginBottom: 15,
@@ -177,44 +179,121 @@ export default StyleSheet.create({
     fontSize: 12,
     fontWeight: "bold",
   },
-  colorSection: {
-  marginBottom: 15,
+  // Updated color section styles
+  colorSectionContent: {
+    alignItems: 'center',
+  },
+  colorButton: {
+    backgroundColor: "#333",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#555",
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  selectedColorButton: {
+    backgroundColor: "#007AFF",
+    borderColor: "#007AFF",
+  },
+  colorRequiredText: {
+    color: "#FF3B30",
+    fontSize: 12,
+    textAlign: "center",
+  },
+  playerColorIndicator: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  
+  // Updated Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContent: {
+  backgroundColor: "#1a1a1a",
+  borderRadius: 15,
+  padding: 25,
+  width: "90%",
+  maxWidth: 400,
+  alignItems: "center",
+  boxShadow: '0px 4px 10px rgba(0, 0, 0, 0.3)',
+  elevation: 10, // Keep elevation for Android
 },
-colorGrid: {
-  flexDirection: "row",
-  flexWrap: "wrap",
-  gap: 8,
-  marginTop: 5,
-},
-colorOption: {
-  width: 40,
-  height: 40,
-  borderRadius: 20,
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#007AFF",
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  colorGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 12,
+    marginBottom: 20,
+    width: "100%",
+  },
+  colorOption: {
+  width: 50,
+  height: 50,
+  borderRadius: 25,
   justifyContent: "center",
   alignItems: "center",
-  borderWidth: 2,
-  borderColor: "#555",
-},
-selectedColor: {
   borderWidth: 3,
-  borderColor: "#FFD700",
+  borderColor: "#444",
+  boxShadow: '0px 2px 3px rgba(0, 0, 0, 0.3)',
+  elevation: 4, // Keep elevation for Android
 },
-disabledColor: {
-  opacity: 0.3,
-},
-colorOptionText: {
-  fontSize: 16,
-},
-playerColorIndicator: {
-  width: 12,
-  height: 12,
-  borderRadius: 6,
-  marginRight: 8,
-},
-colorRequiredText: {
-  color: "#FF3B30",
-  fontSize: 12,
-  marginTop: 5,
-  textAlign: "center",
-},
+  selectedColor: {
+    borderWidth: 4,
+    borderColor: "#FFD700",
+    transform: [{ scale: 1.1 }],
+  },
+  disabledColor: {
+    opacity: 0.4,
+    transform: [{ scale: 0.9 }],
+  },
+  colorOptionText: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    textShadow: '1px 1px 2px rgba(0, 0, 0, 0.8)',
+  },
+  modalButton: {
+    backgroundColor: "#007AFF",
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 8,
+    width: "100%",
+    alignItems: "center",
+  },
+  modalCloseButton: {
+    backgroundColor: "#666",
+    marginTop: 10,
+  },
+  colorPreview: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    marginBottom: 15,
+    borderWidth: 3,
+    borderColor: "#444",
+  },
+  selectedColorName: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 20,
+    textAlign: "center",
+  },
 });

@@ -2,6 +2,7 @@ import spriteSheetsData from '../assets/data/spriteSheets.json';
 
 // Static mapping of topic IDs to image sources
 const topicImageSources = {
+  1: require('../assets/images/NBA120.png'),
   3: require('../assets/images/spritesheet_pokemon21.png'),
   4: require('../assets/images/spritesheet_lol.png'),
   // Add new topics here:

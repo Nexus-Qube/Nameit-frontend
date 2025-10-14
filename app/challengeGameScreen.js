@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -9,10 +9,13 @@ import {
   TouchableOpacity,
   Alert,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { getSocket, removeGameListeners } from "../services/socket";
 import { fetchTopicById, fetchItemsByTopic } from "../services/api";
+import { getSpriteSheetConfig } from "../config/spriteSheetConfigs";
 import { useGameLogic } from "../hooks/useGameLogic";
 import { scrollToItem } from "../helpers/scrollHelpers";
 import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelpers";
@@ -44,10 +47,35 @@ const DEFAULT_SHEET_HEIGHT = 2180;
 
 export default function ChallengeGameScreen() {
   const { width } = Dimensions.get('window');
-  const itemWidth = width >= 400 ? 120 : '30%';
-
   const params = useLocalSearchParams();
   const router = useRouter();
+
+  // Use useMemo for layout calculations to prevent re-renders
+  const { itemWidth, calculatedItemsPerRow } = useMemo(() => {
+    const minItemsPerRow = 3;
+    const maxItemWidth = 120; // Locked max width
+    const containerPadding = 40; // 20px on each side
+    const itemMargin = 8; // Total horizontal margin per item (4px on each side)
+
+    // First, calculate how many items would fit if we use maxItemWidth
+    const maxPossibleItems = Math.floor((width - containerPadding) / (maxItemWidth + itemMargin));
+
+    // Use at least minItemsPerRow, but more if screen is wide enough
+    const calculatedItemsPerRow = Math.max(minItemsPerRow, maxPossibleItems);
+
+    // Calculate the available width for items (total width minus padding and margins)
+    const availableWidth = width - containerPadding - (calculatedItemsPerRow * itemMargin);
+
+    // Calculate item width, but don't exceed maxItemWidth
+    const itemWidth = Math.min(
+      maxItemWidth,
+      Math.floor(availableWidth / calculatedItemsPerRow)
+    );
+
+    console.log('Screen width:', width, 'Items per row:', calculatedItemsPerRow, 'Item width:', itemWidth);
+    
+    return { itemWidth, calculatedItemsPerRow };
+  }, [width]); // Only recalculate when width changes
 
   const lobbyId = Number(params.lobbyId);
   const playerId = Number(params.playerId);
@@ -92,19 +120,6 @@ export default function ChallengeGameScreen() {
   // Custom hooks
   const { items, setItems, playerSolvedCount, handleItemMatch, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
 
-  const localSheets = {
-    3: {
-      src: require("../assets/images/spritesheet_pokemon21.png"),
-      width: 3871,
-      height: 2904,
-    },
-    4: {
-      src: require("../assets/images/spritesheet_lol.png"),
-      width: 1211,
-      height: 2179,
-    },
-  };
-
   // --- Timer functions ---
   const clearTimer = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -137,24 +152,23 @@ export default function ChallengeGameScreen() {
         const topicData = await fetchTopicById(topicId);
         if (!topicData) return;
 
-        const sheet = localSheets[topicId] || {
-          src: require("../assets/images/spritesheet_pokemon21.png"),
-          width: DEFAULT_SHEET_WIDTH,
-          height: DEFAULT_SHEET_HEIGHT,
-        };
+        // Get sprite sheet configuration from JSON config
+        const spriteConfig = getSpriteSheetConfig(topicId);
 
         setSpriteInfo({
           spriteSize: topicData.sprite_size || DEFAULT_SPRITE_SIZE,
           margin: DEFAULT_MARGIN,
           spritesPerRow: topicData.sprites_per_row || DEFAULT_SPRITES_PER_ROW,
-          sheetWidth: sheet.width,
-          sheetHeight: sheet.height,
-          sheetUrl: sheet.src,
+          sheetWidth: spriteConfig.width,
+          sheetHeight: spriteConfig.height,
+          sheetUrl: spriteConfig.src,
         });
 
         const itemsData = await fetchItemsByTopic(topicId);
         const initializedItems = initializeGameItems(itemsData, topicData);
         setItems(initializedItems);
+        
+        console.log(`✅ Loaded sprite sheet for topic ${topicId}: ${spriteConfig.fileName}`);
       } catch (err) {
         console.error("Error fetching topic/items:", err);
       }
@@ -192,14 +206,19 @@ export default function ChallengeGameScreen() {
     const handleItemSolved = ({ itemId, solvedBy }) => {
       console.log(`✅ Item ${itemId} solved by player ${solvedBy}`);
       
-      setItems((prev) =>
-        prev.map((item) => (item.id === itemId ? { ...item, solved: true, solvedBy } : item))
-      );
-
-      // Removed flip animation, just scroll to item
-      setTimeout(() => {
-        scrollToItem(itemRefs, scrollRef, itemId);
-      }, 100);
+      // Update items state first, then scroll
+      setItems((prev) => {
+        const updatedItems = prev.map((item) => 
+          item.id === itemId ? { ...item, solved: true, solvedBy } : item
+        );
+        
+        // Scroll after state is updated
+        setTimeout(() => {
+          scrollToItem(itemRefs, scrollRef, itemId, updatedItems);
+        }, 150);
+        
+        return updatedItems;
+      });
     };
 
     const handleTurnChanged = ({ currentTurnId, currentTurnName, timeLeft, players }) => {
@@ -271,6 +290,11 @@ export default function ChallengeGameScreen() {
         correct: true,
         itemId: matched.id,
       });
+
+      // Scroll to the solved item - PASS THE ITEMS ARRAY
+      setTimeout(() => {
+        scrollToItem(itemRefs, scrollRef, matched.id, items);
+      }, 100);
     }
   };
 
@@ -338,183 +362,196 @@ export default function ChallengeGameScreen() {
   };
 
   return (
-    <View style={{ flex: 1, padding: 20 }}>
-      <View style={styles.topRow}>
-        <View style={styles.rowLeft}>
-          <TouchableOpacity onPress={handleReturnToLobby}>
-            <Text style={{ color: "blue", fontSize: 16 }}>Return to Lobby</Text>
-          </TouchableOpacity>
-        </View>
+    <KeyboardAvoidingView 
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+    >
+      <View style={{ flex: 1, padding: 20 }}>
+        <View style={styles.topRow}>
+          <View style={styles.rowLeft}>
+            <TouchableOpacity onPress={handleReturnToLobby}>
+              <Text style={{ color: "blue", fontSize: 16 }}>Return to Lobby</Text>
+            </TouchableOpacity>
+          </View>
 
-        <View style={styles.rowSection}>
-          <Text
-            style={[
-              styles.statusMessage,
-              statusMessage === "Answer before time runs out" && { color: "yellow" },
-              statusMessage === "You lost" && { color: "red" },
-              statusMessage === "You won" && { color: "green" },
-            ]}
-          >
-            {statusMessage}
-          </Text>
-        </View>
-
-        <View style={styles.rowRight}>
-          <Text style={styles.counter}>
-            {solvedCount} / {items.length}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.bottomRow}>
-        <View style={styles.rowLeft}>
-          <Text style={styles.countdown}>{timer}s</Text>
-        </View>
-
-        <View style={styles.rowSection}>
-          <Text
-            style={[
-              styles.counter,
-              currentTurnPlayer.id === playerId && { color: "green" },
-            ]}
-          >
-            {currentTurnPlayer.id === playerId
-              ? "Your turn!"
-              : `${currentTurnPlayer.name}'s turn`}
-          </Text>
-        </View>
-
-        <View style={styles.rowRight}>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.counter}>
-              You solved {playerSolvedCount}
+          <View style={styles.rowSection}>
+            <Text
+              style={[
+                styles.statusMessage,
+                statusMessage === "Answer before time runs out" && { color: "yellow" },
+                statusMessage === "You lost" && { color: "red" },
+                statusMessage === "You won" && { color: "green" },
+              ]}
+            >
+              {statusMessage}
             </Text>
-            {myColor && (
-              <Text style={{ color: '#fff', fontSize: 12, marginTop: 2 }}>
-                Your color: {getMyColorDisplay()}
-              </Text>
-            )}
+          </View>
+
+          <View style={styles.rowRight}>
+            <Text style={styles.counter}>
+              {solvedCount} / {items.length}
+            </Text>
           </View>
         </View>
-      </View>
 
-      <TextInput
-        placeholder={
-          currentTurnPlayer.id === playerId
-            ? "Type item name..."
-            : "Wait for your turn..."
-        }
-        value={input}
-        onChangeText={handleInputChange}
-        style={[
-          styles.input,
-          currentTurnPlayer.id !== playerId && { backgroundColor: "#ddd" },
-        ]}
-        autoCapitalize="none"
-        autoCorrect={false}
-        editable={currentTurnPlayer.id === playerId && !gameOver}
-      />
+        <View style={styles.bottomRow}>
+          <View style={styles.rowLeft}>
+            <Text style={styles.countdown}>{timer}s</Text>
+          </View>
 
-      <ScrollView 
-        contentContainerStyle={styles.grid} 
-        ref={scrollRef}
-        showsVerticalScrollIndicator={true}
-      >
-        {items.map((item) => {
-          const { left, top } = getSpritePosition(item.order, spriteInfo);
-          const isSolvedOrGameOver = item.solved || gameOver;
-          const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
-          const borderImage = item.solvedBy ? getBorderImage(item.solvedBy) : null;
+          <View style={styles.rowSection}>
+            <Text
+              style={[
+                styles.counter,
+                currentTurnPlayer.id === playerId && { color: "green" },
+              ]}
+            >
+              {currentTurnPlayer.id === playerId
+                ? "Your turn!"
+                : `${currentTurnPlayer.name}'s turn`}
+            </Text>
+          </View>
 
-          return (
-            <View key={item.id} style={[styles.itemContainer, { width: itemWidth }]}>
-              <View style={styles.outerContainer}>
-                <View 
-                  style={styles.imageContainer}
-                  ref={(ref) => (itemRefs.current[item.id] = ref)}
-                >
-                  {/* Show unsolved background or solved sprite */}
-                  {!item.solved ? (
-                    <Image 
-                      source={itemUnsolved}
-                      style={styles.unsolvedBackground}
-                    />
-                  ) : (
-                    <Image
-                      source={spriteInfo.sheetUrl}
-                      style={{
-                        width: spriteInfo.sheetWidth * scale,
-                        height: spriteInfo.sheetHeight * scale,
-                        transform: [
-                          { translateX: -left * scale },
-                          { translateY: -top * scale },
-                        ],
-                      }}
-                    />
-                  )}
-                </View>
-                
-                {/* Colored border overlay - only for solved items */}
-                {item.solved && borderImage && (
-                  <Image 
-                    source={borderImage}
-                    style={styles.borderOverlay}
-                  />
-                )}
-              </View>
-
-              {isSolvedOrGameOver && (
-                <Text
-                  style={{
-                    color: item.solved ? "#fff" : "gray",
-                    textAlign: "center",
-                    marginTop: 4,
-                  }}
-                >
-                  {item.name}
+          <View style={styles.rowRight}>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.counter}>
+                You solved {playerSolvedCount}
+              </Text>
+              {myColor && (
+                <Text style={{ color: '#fff', fontSize: 12, marginTop: 2 }}>
+                  Your color: {getMyColorDisplay()}
                 </Text>
               )}
             </View>
-          );
-        })}
-      </ScrollView>
-
-      <Modal visible={modalVisible} transparent animationType="fade">
-        <View style={styles.modalBackground}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Game Over</Text>
-            {winner && (
-              <Text style={{ fontWeight: "bold", marginBottom: 8 }}>
-                Winner: {winner.name}
-              </Text>
-            )}
-            <Text style={styles.modalText}>
-              Solved {solvedCount} / {items.length} items
-            </Text>
-            <Text style={styles.modalText}>
-              You solved {playerSolvedCount} items
-            </Text>
-
-            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalButton}>
-              <Text style={{ color: "red", fontSize: 16 }}>
-                Close
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={handleReturnToLobby} style={styles.modalButton}>
-              <Text style={{ color: "blue", fontSize: 16 }}>
-                Return to Lobby
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={handleLeaveGame} style={styles.modalButton}>
-              <Text style={{ color: "gray", fontSize: 16 }}>
-                Leave Game
-              </Text>
-            </TouchableOpacity>
           </View>
         </View>
-      </Modal>
-    </View>
+
+        <TextInput
+          placeholder={
+            currentTurnPlayer.id === playerId
+              ? "Type item name..."
+              : "Wait for your turn..."
+          }
+          value={input}
+          onChangeText={handleInputChange}
+          style={[
+            styles.input,
+            currentTurnPlayer.id !== playerId && { backgroundColor: "#ddd" },
+          ]}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={currentTurnPlayer.id === playerId && !gameOver}
+        />
+
+        <ScrollView 
+          contentContainerStyle={styles.grid} 
+          ref={scrollRef}
+          showsVerticalScrollIndicator={true}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          nativeID="game-scrollview"
+        >
+          {items.map((item) => {
+            const { left, top } = getSpritePosition(item.order, spriteInfo);
+            const isSolvedOrGameOver = item.solved || gameOver;
+            const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
+            const borderImage = item.solvedBy ? getBorderImage(item.solvedBy) : null;
+
+            return (
+              <View 
+                key={item.id} 
+                style={[styles.itemContainer, { width: itemWidth }]}
+                nativeID={`item-${item.id}`}
+              >
+                <View style={styles.outerContainer}>
+                  <View 
+                    style={styles.imageContainer}
+                    ref={(ref) => (itemRefs.current[item.id] = ref)}
+                  >
+                    {/* Show unsolved background or solved sprite */}
+                    {!item.solved ? (
+                      <Image 
+                        source={itemUnsolved}
+                        style={styles.unsolvedBackground}
+                      />
+                    ) : (
+                      <Image
+                        source={spriteInfo.sheetUrl}
+                        style={{
+                          width: spriteInfo.sheetWidth * scale,
+                          height: spriteInfo.sheetHeight * scale,
+                          transform: [
+                            { translateX: -left * scale },
+                            { translateY: -top * scale },
+                          ],
+                        }}
+                      />
+                    )}
+                  </View>
+                  
+                  {/* Colored border overlay - only for solved items */}
+                  {item.solved && borderImage && (
+                    <Image 
+                      source={borderImage}
+                      style={styles.borderOverlay}
+                    />
+                  )}
+                </View>
+
+                {isSolvedOrGameOver && (
+                  <Text
+                    style={{
+                      color: item.solved ? "#fff" : "gray",
+                      textAlign: "center",
+                      marginTop: 4,
+                    }}
+                  >
+                    {item.name}
+                  </Text>
+                )}
+              </View>
+            );
+          })}
+        </ScrollView>
+
+        <Modal visible={modalVisible} transparent animationType="fade">
+          <View style={styles.modalBackground}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Game Over</Text>
+              {winner && (
+                <Text style={{ fontWeight: "bold", marginBottom: 8 }}>
+                  Winner: {winner.name}
+                </Text>
+              )}
+              <Text style={styles.modalText}>
+                Solved {solvedCount} / {items.length} items
+              </Text>
+              <Text style={styles.modalText}>
+                You solved {playerSolvedCount} items
+              </Text>
+
+              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalButton}>
+                <Text style={{ color: "red", fontSize: 16 }}>
+                  Close
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={handleReturnToLobby} style={styles.modalButton}>
+                <Text style={{ color: "blue", fontSize: 16 }}>
+                  Return to Lobby
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={handleLeaveGame} style={styles.modalButton}>
+                <Text style={{ color: "gray", fontSize: 16 }}>
+                  Leave Game
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    </KeyboardAvoidingView>
   );
 }

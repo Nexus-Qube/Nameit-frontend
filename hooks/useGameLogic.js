@@ -5,10 +5,14 @@ const findMatchingItem = (items, input, currentTurnPlayerId, playerId, gameOver)
     return null;
   }
 
+  const normalizedInput = input.trim().toLowerCase();
+  
   return items.find(
     (item) =>
       !item.solved &&
-      item.name.toLowerCase() === input.trim().toLowerCase()
+      item.correct.some(correctAnswer => 
+        correctAnswer.toLowerCase() === normalizedInput
+      )
   );
 };
 

@@ -332,27 +332,30 @@ export default function WaitingRoom() {
         </View>
 
         {/* Player Color Selection */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Your Color</Text>
-          <View style={styles.rulesContainer}>
-            <TouchableOpacity
-              style={styles.optionButton}
-              onPress={() => setColorModalVisible(true)}
-            >
-              <Text style={styles.optionText}>
-                {selectedColor ? 
-                  `Selected: ${PLAYER_COLORS.find(c => c.id === selectedColor)?.display}` : 
-                  "Choose Your Color"
-                }
-              </Text>
-            </TouchableOpacity>
-            {!canSetReady && (
-              <Text style={styles.colorRequiredText}>
-                * You must select a color to set ready
-              </Text>
-            )}
-          </View>
-        </View>
+<View style={styles.section}>
+  <Text style={styles.sectionTitle}>Your Color</Text>
+  <View style={styles.colorSectionContent}>
+    <TouchableOpacity
+      style={[
+        styles.colorButton,
+        selectedColor && styles.selectedColorButton
+      ]}
+      onPress={() => setColorModalVisible(true)}
+    >
+      <Text style={styles.optionText}>
+        {selectedColor ? 
+          `Selected: ${PLAYER_COLORS.find(c => c.id === selectedColor)?.display}` : 
+          "Choose Your Color"
+        }
+      </Text>
+    </TouchableOpacity>
+    {!canSetReady && (
+      <Text style={styles.colorRequiredText}>
+        * You must select a color to set ready
+      </Text>
+    )}
+  </View>
+</View>
 
         {/* Game Rules Section */}
         <View style={styles.section}>
@@ -469,27 +472,79 @@ export default function WaitingRoom() {
       </TouchableOpacity>
 
       {/* Color Selection Modal */}
-      <Modal
-        visible={colorModalVisible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setColorModalVisible(false)}
+<Modal
+  visible={colorModalVisible}
+  transparent={true}
+  animationType="fade"
+  onRequestClose={() => setColorModalVisible(false)}
+>
+  <View style={styles.modalOverlay}>
+    <View style={styles.modalContent}>
+      <Text style={styles.modalTitle}>Choose Your Color</Text>
+      
+      {/* Selected Color Preview */}
+      {selectedColor && (
+        <>
+          <View 
+            style={[
+              styles.colorPreview,
+              { 
+                backgroundColor: PLAYER_COLORS.find(c => c.id === selectedColor)?.value || '#ccc'
+              }
+            ]} 
+          />
+          <Text style={styles.selectedColorName}>
+            {PLAYER_COLORS.find(c => c.id === selectedColor)?.display}
+          </Text>
+        </>
+      )}
+      
+      {/* Color Grid */}
+      <View style={styles.colorGrid}>
+        {availableColors.map((color) => (
+          <TouchableOpacity
+            key={color.id}
+            style={[
+              styles.colorOption,
+              { backgroundColor: color.value || "transparent" },
+              selectedColor === color.id && styles.selectedColor,
+              !color.available && styles.disabledColor
+            ]}
+            onPress={() => {
+              if (color.available) {
+                setSelectedColor(color.id);
+                updatePlayerColor(color.id);
+                setColorModalVisible(false);
+              }
+            }}
+            disabled={!color.available}
+          >
+            <Text style={styles.colorOptionText}>
+              {color.id === null ? "⚪" : ""}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      
+      {/* Action Buttons */}
+      <TouchableOpacity
+        style={styles.modalButton}
+        onPress={() => setColorModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Choose Your Color</Text>
-            <View style={styles.colorGrid}>
-              {availableColors.map(renderColorOption)}
-            </View>
-            <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: '#ccc', marginTop: 15 }]}
-              onPress={() => setColorModalVisible(false)}
-            >
-              <Text style={styles.buttonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        <Text style={styles.buttonText}>
+          {selectedColor ? 'Confirm Color' : 'Close'}
+        </Text>
+      </TouchableOpacity>
+      
+      <TouchableOpacity
+        style={[styles.modalButton, styles.modalCloseButton]}
+        onPress={() => setColorModalVisible(false)}
+      >
+        <Text style={styles.buttonText}>Cancel</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+</Modal>
     </View>
   );
 }
