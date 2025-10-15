@@ -1,64 +1,72 @@
-import spriteSheetsData from '../assets/data/spriteSheets.json';
+// Import all sprite sheet images
+import NBA120 from '../assets/images/NBA120.png';
+import spritesheet_pokemon21 from '../assets/images/spritesheet_pokemon21.png';
+import spritesheet_lol from '../assets/images/spritesheet_lol.png';
+import Overwatch75 from '../assets/images/Overwatch75.png';
 
-// Static mapping of topic IDs to image sources
-const topicImageSources = {
-  1: require('../assets/images/NBA120.png'),
-  3: require('../assets/images/spritesheet_pokemon21.png'),
-  4: require('../assets/images/spritesheet_lol.png'),
-  // Add new topics here:
-  // 5: require('../assets/images/spritesheet_new_topic.png'),
+// Single source of truth - all config in one place
+const spriteSheets = {
+  1: {
+    src: NBA120,
+    width: 606,
+    height: 727,
+    fileName: 'NBA120.png',
+  },
+  3: {
+    src: spritesheet_pokemon21,
+    width: 3871,
+    height: 2904,
+    fileName: 'spritesheet_pokemon21.png',
+  },
+  4: {
+    src: spritesheet_lol,
+    width: 1211,
+    height: 2179,
+    fileName: 'spritesheet_lol.png',
+  },
+  5: {
+    src: Overwatch75,
+    width: 761,
+    height: 381,
+    fileName: 'Overwatch75.png',
+  },
 };
 
-const FALLBACK_CONFIG = {
-  src: require('../assets/images/spritesheet_pokemon21.png'), // Use Pokemon as fallback
-  width: 3871,
-  height: 2904,
+// Only need one fallback config for topics without sprite sheets
+const NO_SPRITESHEET_CONFIG = {
+  noSpriteSheet: true,
+  src: null,
+  width: 100,
+  height: 100,
+  fileName: 'no_spritesheet',
 };
 
 export const getSpriteSheetConfig = (topicId) => {
-  const topicKey = topicId.toString();
-  const config = spriteSheetsData.spriteSheets[topicKey];
-  const imageSource = topicImageSources[topicId];
+  const config = spriteSheets[topicId];
   
-  // If we have both config and image source, return complete config
-  if (config && imageSource) {
+  if (config) {
     return {
-      src: imageSource,
-      width: config.width,
-      height: config.height,
-      fileName: config.fileName,
+      ...config,
+      hasSpriteSheet: true,
     };
   }
   
-  // If we have image source but no config, use image source with default dimensions
-  if (imageSource) {
-    console.warn(`No sprite sheet configuration found for topic ID: ${topicId}, using default dimensions`);
-    return {
-      src: imageSource,
-      width: 1200,
-      height: 1200,
-      fileName: `spritesheet_topic${topicId}.png`,
-    };
-  }
-  
-  // If no image source, return fallback
-  console.warn(`No sprite sheet image found for topic ID: ${topicId}, using fallback`);
-  return FALLBACK_CONFIG;
+  console.warn(`No sprite sheet configuration found for topic ID: ${topicId}, showing gray square with checkmark`);
+  return NO_SPRITESHEET_CONFIG;
 };
 
 export const getAvailableTopicIds = () => {
-  return Object.keys(spriteSheetsData.spriteSheets).map(id => parseInt(id));
+  return Object.keys(spriteSheets).map(id => parseInt(id));
 };
 
 export const hasSpriteSheet = (topicId) => {
-  return !!topicImageSources[topicId];
+  return !!spriteSheets[topicId];
 };
 
-// Helper to see which topics are configured
 export const getConfiguredTopics = () => {
-  return Object.keys(topicImageSources).map(id => ({
+  return Object.keys(spriteSheets).map(id => ({
     id: parseInt(id),
-    hasConfig: !!spriteSheetsData.spriteSheets[id],
+    hasConfig: true,
     hasImage: true,
   }));
 };

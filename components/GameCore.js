@@ -13,7 +13,7 @@ import { scrollToItem } from "../helpers/scrollHelpers";
 import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelpers";
 import { getSpriteSheetConfig } from "../config/spriteSheetConfigs";
 import styles from "../styles/GameScreenStyles";
-import solvedBorder from "../assets/images/solved_border2.png";
+import solvedBorder from "../assets/images/solved_border_default.png";
 import itemUnsolved from "../assets/images/item_unsolved.png";
 
 // Default constants

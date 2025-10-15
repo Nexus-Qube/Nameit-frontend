@@ -1,7 +1,7 @@
 // helpers/scrollHelpers.js
 import { Platform, Dimensions } from "react-native";
 
-export const scrollToItem = (itemRefs, scrollRef, itemId, allItems = []) => {
+export const scrollToItem = (itemRefs, scrollRef, itemId, allItems = [], itemsPerRow, itemWidth) => {
   console.log(`🎯 Scroll called for item: ${itemId}`);
   
   if (!scrollRef.current) {
@@ -18,19 +18,23 @@ export const scrollToItem = (itemRefs, scrollRef, itemId, allItems = []) => {
         return;
       }
 
-      // Use more accurate calculations based on your actual layout
-      const itemsPerRow = calculateItemsPerRow();
+      const calculatedItemsPerRow = itemsPerRow || calculateItemsPerRow();
       
-      // Adjusted values based on your working mobile scroll (8037px)
-      const rowHeight = 164; // Reduced from 180 to match actual item height
-      const headerOffset = 100; // Reduced from 250 to match previous working offset
+      // More precise calculations based on your actual styles
+      const itemContainerHeight = 150; // From your styles.itemContainer height
+      const verticalMargin = 12; // From your styles.itemContainer marginBottom
+      const rowHeight = itemContainerHeight + verticalMargin;
       
-      const rowIndex = Math.floor(itemIndex / itemsPerRow);
+      // Calculate header height more precisely
+      // Top row (~50px) + Bottom row (~50px) + Input field (~50px) + Padding (40px) = ~190px
+      const headerOffset = 190;
+      
+      const rowIndex = Math.floor(itemIndex / calculatedItemsPerRow);
       const scrollY = (rowIndex * rowHeight) - headerOffset;
       
       const finalScrollY = Math.max(0, scrollY);
       
-      console.log(`📊 Index-based scroll - Item: ${itemId}, Index: ${itemIndex}, Row: ${rowIndex}, ScrollY: ${finalScrollY}`);
+      console.log(`📊 Scroll - RowHeight: ${rowHeight}, ItemIndex: ${itemIndex}, Row: ${rowIndex}, ScrollY: ${finalScrollY}`);
       
       scrollRef.current.scrollTo({
         y: finalScrollY,
@@ -39,7 +43,6 @@ export const scrollToItem = (itemRefs, scrollRef, itemId, allItems = []) => {
       
     } catch (error) {
       console.log('Index scroll error:', error);
-      // Fallback to the old measurement method for mobile
       useMeasurementFallback(itemRefs, scrollRef, itemId);
     }
   }, 100);

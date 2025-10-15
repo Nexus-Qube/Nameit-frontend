@@ -122,4 +122,17 @@ imageContainer: {
     borderRadius: 8,
     backgroundColor: "#f0f0f0",
   },
+  graySquare: {
+  width: '100%',
+  height: '100%',
+  backgroundColor: '#333',
+  justifyContent: 'center',
+  alignItems: 'center',
+  borderRadius: 8,
+},
+checkmark: {
+  color: '#4CAF50', // Green color
+  fontSize: 36,
+  fontWeight: 'bold',
+},
 });

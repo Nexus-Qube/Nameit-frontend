@@ -38,13 +38,6 @@ const COLORED_BORDERS = {
   gray: require("../assets/images/solved_border_gray.png"),
 };
 
-// Default sprite sheet info
-const DEFAULT_SPRITE_SIZE = 120;
-const DEFAULT_MARGIN = 1;
-const DEFAULT_SPRITES_PER_ROW = 10;
-const DEFAULT_SHEET_WIDTH = 2381;
-const DEFAULT_SHEET_HEIGHT = 2180;
-
 export default function ChallengeGameScreen() {
   const { width } = Dimensions.get('window');
   const params = useLocalSearchParams();
@@ -94,13 +87,14 @@ export default function ChallengeGameScreen() {
   const [winner, setWinner] = useState(null);
   const [input, setInput] = useState("");
   const [spriteInfo, setSpriteInfo] = useState({
-    spriteSize: DEFAULT_SPRITE_SIZE,
-    margin: DEFAULT_MARGIN,
-    spritesPerRow: DEFAULT_SPRITES_PER_ROW,
-    sheetWidth: DEFAULT_SHEET_WIDTH,
-    sheetHeight: DEFAULT_SHEET_HEIGHT,
-    sheetUrl: null,
-  });
+  spriteSize: 0,        // Will be set from API (always available)
+  margin: 1,            // Hardcoded since it's always 1
+  spritesPerRow: 0,     // Will be set from API (always available)
+  sheetWidth: 0,        // Will be set from sprite config
+  sheetHeight: 0,       // Will be set from sprite config
+  sheetUrl: null,       // Will be set from sprite config
+  noSpriteSheet: false, // Will be set from sprite config
+});
   const [modalVisible, setModalVisible] = useState(false);
   const [statusMessage, setStatusMessage] = useState(
     "Answer before time runs out"
@@ -156,19 +150,24 @@ export default function ChallengeGameScreen() {
         const spriteConfig = getSpriteSheetConfig(topicId);
 
         setSpriteInfo({
-          spriteSize: topicData.sprite_size || DEFAULT_SPRITE_SIZE,
-          margin: DEFAULT_MARGIN,
-          spritesPerRow: topicData.sprites_per_row || DEFAULT_SPRITES_PER_ROW,
-          sheetWidth: spriteConfig.width,
-          sheetHeight: spriteConfig.height,
-          sheetUrl: spriteConfig.src,
-        });
+  spriteSize: topicData.sprite_size,      // No fallback needed - API always provides
+  margin: 1,                              // Hardcoded
+  spritesPerRow: topicData.sprites_per_row, // No fallback needed - API always provides
+  sheetWidth: spriteConfig.width,
+  sheetHeight: spriteConfig.height,
+  sheetUrl: spriteConfig.src,
+  noSpriteSheet: spriteConfig.noSpriteSheet || false,
+});
 
         const itemsData = await fetchItemsByTopic(topicId);
         const initializedItems = initializeGameItems(itemsData, topicData);
         setItems(initializedItems);
         
-        console.log(`✅ Loaded sprite sheet for topic ${topicId}: ${spriteConfig.fileName}`);
+        if (spriteConfig.noSpriteSheet) {
+          console.log(`ℹ️ No sprite sheet for topic ${topicId}, using gray squares with checkmarks`);
+        } else {
+          console.log(`✅ Loaded sprite sheet for topic ${topicId}: ${spriteConfig.fileName}`);
+        }
       } catch (err) {
         console.error("Error fetching topic/items:", err);
       }
@@ -214,7 +213,7 @@ export default function ChallengeGameScreen() {
         
         // Scroll after state is updated
         setTimeout(() => {
-          scrollToItem(itemRefs, scrollRef, itemId, updatedItems);
+          scrollToItem(itemRefs, scrollRef, itemId, updatedItems, calculatedItemsPerRow, itemWidth);
         }, 150);
         
         return updatedItems;
@@ -293,7 +292,7 @@ export default function ChallengeGameScreen() {
 
       // Scroll to the solved item - PASS THE ITEMS ARRAY
       setTimeout(() => {
-        scrollToItem(itemRefs, scrollRef, matched.id, items);
+        scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth);
       }, 100);
     }
   };
@@ -416,11 +415,11 @@ export default function ChallengeGameScreen() {
           <View style={styles.rowRight}>
             <View style={{ alignItems: 'flex-end' }}>
               <Text style={styles.counter}>
-                You solved {playerSolvedCount}
+                Solved {playerSolvedCount}
               </Text>
               {myColor && (
                 <Text style={{ color: '#fff', fontSize: 12, marginTop: 2 }}>
-                  Your color: {getMyColorDisplay()}
+                  My color: {getMyColorDisplay()}
                 </Text>
               )}
             </View>
@@ -469,13 +468,19 @@ export default function ChallengeGameScreen() {
                     style={styles.imageContainer}
                     ref={(ref) => (itemRefs.current[item.id] = ref)}
                   >
-                    {/* Show unsolved background or solved sprite */}
+                    {/* Show unsolved background or solved content */}
                     {!item.solved ? (
                       <Image 
                         source={itemUnsolved}
                         style={styles.unsolvedBackground}
                       />
+                    ) : spriteInfo.noSpriteSheet ? (
+                      // Show gray square with checkmark for topics without sprite sheets
+                      <View style={styles.graySquare}>
+                        <Text style={styles.checkmark}>✓</Text>
+                      </View>
                     ) : (
+                      // Show actual sprite sheet for topics with sprite sheets
                       <Image
                         source={spriteInfo.sheetUrl}
                         style={{

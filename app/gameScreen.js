@@ -19,15 +19,8 @@ import { scrollToItem } from "../helpers/scrollHelpers";
 import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelpers";
 import { useGameLogic } from "../hooks/useGameLogic";
 import styles from "../styles/GameScreenStyles";
-import solvedBorder from "../assets/images/solved_border2.png";
+import solvedBorder from "../assets/images/solved_border_default.png";
 import itemUnsolved from "../assets/images/item_unsolved.png";
-
-// Default sprite sheet info
-const DEFAULT_SPRITE_SIZE = 120;
-const DEFAULT_MARGIN = 1;
-const DEFAULT_SPRITES_PER_ROW = 10;
-const DEFAULT_SHEET_WIDTH = 2381;
-const DEFAULT_SHEET_HEIGHT = 2180;
 
 export default function GameScreen() {
   const { width } = Dimensions.get('window');
@@ -65,13 +58,14 @@ export default function GameScreen() {
   const [time, setTime] = useState(mode === "countdown" ? 60 : 0);
   const [gameOver, setGameOver] = useState(false);
   const [spriteInfo, setSpriteInfo] = useState({
-    spriteSize: DEFAULT_SPRITE_SIZE,
-    margin: DEFAULT_MARGIN,
-    spritesPerRow: DEFAULT_SPRITES_PER_ROW,
-    sheetWidth: DEFAULT_SHEET_WIDTH,
-    sheetHeight: DEFAULT_SHEET_HEIGHT,
-    sheetUrl: null,
-  });
+  spriteSize: 0,        // Will be set from API (always available)
+  margin: 1,            // Hardcoded since it's always 1
+  spritesPerRow: 0,     // Will be set from API (always available)
+  sheetWidth: 0,        // Will be set from sprite config
+  sheetHeight: 0,       // Will be set from sprite config
+  sheetUrl: null,       // Will be set from sprite config
+  noSpriteSheet: false, // Will be set from sprite config
+});
 
   const scrollRef = useRef(null);
   const itemRefs = useRef({});
@@ -120,19 +114,24 @@ export default function GameScreen() {
         const spriteConfig = getSpriteSheetConfig(topicNum);
 
         setSpriteInfo({
-          spriteSize: topicData.sprite_size || DEFAULT_SPRITE_SIZE,
-          margin: DEFAULT_MARGIN,
-          spritesPerRow: topicData.sprites_per_row || DEFAULT_SPRITES_PER_ROW,
-          sheetWidth: spriteConfig.width,
-          sheetHeight: spriteConfig.height,
-          sheetUrl: spriteConfig.src,
-        });
+  spriteSize: topicData.sprite_size,      // No fallback needed - API always provides
+  margin: 1,                              // Hardcoded
+  spritesPerRow: topicData.sprites_per_row, // No fallback needed - API always provides
+  sheetWidth: spriteConfig.width,
+  sheetHeight: spriteConfig.height,
+  sheetUrl: spriteConfig.src,
+  noSpriteSheet: spriteConfig.noSpriteSheet || false,
+});
 
         const itemsData = await fetchItemsByTopic(topicNum);
         const initializedItems = initializeGameItems(itemsData, topicData);
         setItems(initializedItems);
         
-        console.log(`✅ Loaded sprite sheet for topic ${topicNum}: ${spriteConfig.fileName}`);
+        if (spriteConfig.noSpriteSheet) {
+          console.log(`ℹ️ No sprite sheet for topic ${topicNum}, using gray squares with checkmarks`);
+        } else {
+          console.log(`✅ Loaded sprite sheet for topic ${topicNum}: ${spriteConfig.fileName}`);
+        }
       } catch (err) {
         console.error("Error fetching topic/items:", err);
       }
@@ -174,7 +173,7 @@ export default function GameScreen() {
 
       // Scroll to the solved item - PASS THE ITEMS ARRAY
       setTimeout(() => {
-        scrollToItem(itemRefs, scrollRef, matched.id, items); // Add items here
+        scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth);
       }, 100);
     }
   };
@@ -269,13 +268,19 @@ export default function GameScreen() {
                     style={styles.imageContainer}
                     ref={(ref) => (itemRefs.current[item.id] = ref)}
                   >
-                    {/* Show unsolved background or solved sprite */}
+                    {/* Show unsolved background or solved content */}
                     {!item.solved ? (
                       <Image 
                         source={itemUnsolved}
                         style={styles.unsolvedBackground}
                       />
+                    ) : spriteInfo.noSpriteSheet ? (
+                      // Show gray square with checkmark for topics without sprite sheets
+                      <View style={styles.graySquare}>
+                        <Text style={styles.checkmark}>✓</Text>
+                      </View>
                     ) : (
+                      // Show actual sprite sheet for topics with sprite sheets
                       <Image
                         source={spriteInfo.sheetUrl}
                         style={{
