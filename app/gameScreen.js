@@ -19,8 +19,11 @@ import { scrollToItem } from "../helpers/scrollHelpers";
 import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelpers";
 import { useGameLogic } from "../hooks/useGameLogic";
 import styles from "../styles/GameScreenStyles";
-import solvedBorder from "../assets/images/solved_border_default.png";
-import itemUnsolved from "../assets/images/item_unsolved.png";
+//import solvedBorder from "../assets/images/solved_border_default.png";
+//import itemUnsolved from "../assets/images/item_unsolved.png";
+
+const solvedBorder = require("../assets/images/solved_border_default.png");
+const itemUnsolved = require("../assets/images/item_unsolved.png");
 
 export default function GameScreen() {
   const { width } = Dimensions.get('window');

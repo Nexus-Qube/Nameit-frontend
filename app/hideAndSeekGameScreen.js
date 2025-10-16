@@ -22,8 +22,9 @@ import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelper
 import { initializeGameItems } from "../helpers/gameLogicHelpers";
 import { PLAYER_COLORS, getColorById } from "../constants/PlayerColors";
 import styles from "../styles/GameScreenStyles";
-import itemUnsolved from "../assets/images/item_unsolved.png";
+//import itemUnsolved from "../assets/images/item_unsolved.png";
 
+const itemUnsolved = require("../assets/images/item_unsolved.png");
 // Import regular colored borders AND hide & seek borders
 const COLORED_BORDERS = {
   red: require("../assets/images/solved_border_red.png"),

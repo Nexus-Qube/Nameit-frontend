@@ -1,8 +1,8 @@
-// Import all sprite sheet images
-import NBA120 from '../assets/images/NBA120.png';
-import spritesheet_pokemon21 from '../assets/images/spritesheet_pokemon21.png';
-import spritesheet_lol from '../assets/images/spritesheet_lol.png';
-import Overwatch75 from '../assets/images/Overwatch75.png';
+// FIXED: Change from import to require()
+const NBA120 = require('../assets/images/NBA120.png');
+const spritesheet_pokemon21 = require('../assets/images/spritesheet_pokemon21.png');
+const spritesheet_lol = require('../assets/images/spritesheet_lol.png');
+const Overwatch75 = require('../assets/images/Overwatch75.png');
 
 // Single source of truth - all config in one place
 const spriteSheets = {
