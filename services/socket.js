@@ -85,6 +85,16 @@ export function removeGameListeners() {
   }
 }
 
+export function removeHideSeekListeners() {
+  if (socket) {
+    socket.off("selectionPhase");
+    socket.off("selectionComplete");
+    socket.off("selectionFailed");
+    socket.off("playerEliminated");
+    console.log("🧹 Removed hide & seek listeners");
+  }
+}
+
 export function removeAllListeners() {
   if (socket) {
     socket.removeAllListeners();

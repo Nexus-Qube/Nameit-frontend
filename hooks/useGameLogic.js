@@ -20,9 +20,9 @@ export const useGameLogic = (initialItems = []) => {
   const [items, setItems] = useState(initialItems);
   const [playerSolvedCount, setPlayerSolvedCount] = useState(0);
 
-  const solveItem = (itemId, solvedBy = null) => {
+  const solveItem = (itemId, solvedBy = null, isHideSeekItem = false) => {
     setItems(prev => prev.map(item => 
-      item.id === itemId ? { ...item, solved: true, solvedBy } : item
+      item.id === itemId ? { ...item, solved: true, solvedBy, isHideSeekItem } : item
     ));
   };
 
@@ -32,13 +32,7 @@ export const useGameLogic = (initialItems = []) => {
 
   const handleItemMatch = (input, currentTurnPlayerId, playerId, gameOver) => {
     const matched = findMatchingItem(items, input, currentTurnPlayerId, playerId, gameOver);
-    
-    if (matched) {
-      solveItem(matched.id, playerId); // Track which player solved it
-      return matched;
-    }
-    
-    return null;
+    return matched; // Just return the matched item, don't solve it locally
   };
 
   const solvedCount = items.filter(item => item.solved).length;
@@ -47,7 +41,7 @@ export const useGameLogic = (initialItems = []) => {
     items,
     setItems,
     playerSolvedCount,
-    solveItem,
+    solveItem, // Export solveItem for controlled solving
     handleItemMatch,
     solvedCount,
     incrementPlayerSolvedCount,

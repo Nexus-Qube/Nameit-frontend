@@ -156,27 +156,32 @@ export default function GameScreen() {
 
   
   // --- Handle input ---
-  const handleInputChange = (text) => {
-    setInput(text);
-    
-    const matched = handleItemMatch(text, 1, 1, gameOver); // Using 1 for single player
-    
-    if (matched) {
-      console.log(`🎯 Matched item: ${matched.name}`);
-      setInput("");
-      incrementPlayerSolvedCount();
+const handleInputChange = (text) => {
+  setInput(text);
+  
+  const matched = handleItemMatch(text, 1, 1, gameOver); // Using 1 for single player
+  
+  if (matched) {
+    console.log(`🎯 Matched item: ${matched.name}`);
+    setInput("");
+    incrementPlayerSolvedCount();
 
-      // Add time bonus in countdown mode
-      if (mode === "countdown") {
-        setTime(prev => prev + 5);
-      }
+    // MANUALLY UPDATE ITEMS TO MARK AS SOLVED
+    setItems(prev => prev.map(item => 
+      item.id === matched.id ? { ...item, solved: true, solvedBy: 1 } : item
+    ));
 
-      // Scroll to the solved item - PASS THE ITEMS ARRAY
-      setTimeout(() => {
-        scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth);
-      }, 100);
+    // Add time bonus in countdown mode
+    if (mode === "countdown") {
+      setTime(prev => prev + 5);
     }
-  };
+
+    // Scroll to the solved item
+    setTimeout(() => {
+      scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth);
+    }, 100);
+  }
+};
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
