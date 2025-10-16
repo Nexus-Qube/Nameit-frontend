@@ -3,7 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, Alert, Clipboard, Modal } from 
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { getPlayer } from "../services/session";
 import { getLobby } from "../services/api";
-import { getSocket, removeWaitingRoomListeners } from "../services/socket";
+import { getSocket, removeWaitingRoomListeners, waitForSocketConnection } from "../services/socket";
 import styles from "../styles/WaitingRoomStyles";
 import { PLAYER_COLORS, getAvailableColors } from "../constants/PlayerColors";
 
@@ -19,6 +19,8 @@ export default function WaitingRoom() {
   const [turnTime, setTurnTime] = useState(20);
   const [selectedColor, setSelectedColor] = useState(null);
   const [colorModalVisible, setColorModalVisible] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const socketRef = useRef(null);
   const fetchedLobbyRef = useRef(null);
@@ -62,136 +64,159 @@ export default function WaitingRoom() {
   useEffect(() => {
     let isMounted = true;
 
-    (async () => {
-      const savedPlayer = await getPlayer();
-      console.log("👤 Player loaded:", savedPlayer);
-
-      if (!savedPlayer?.id) {
-        router.push("/");
-        return;
-      }
-      if (!isMounted) return;
-
-      setPlayer(savedPlayer);
-
-      const s = getSocket();
-      socketRef.current = s;
-
-      console.log("✅ Socket connected for waiting room:", s.id);
-
+    const initializeSocketAndJoin = async () => {
       try {
-        const data = await getLobby(code);
-        console.log("📥 Lobby fetched:", data);
+        setLoading(true);
+        
+        const savedPlayer = await getPlayer();
+        console.log("👤 Player loaded:", savedPlayer);
+
+        if (!savedPlayer?.id) {
+          router.push("/");
+          return;
+        }
         if (!isMounted) return;
 
-        setLobby(data);
-        fetchedLobbyRef.current = data;
+        setPlayer(savedPlayer);
 
-        s.emit("joinWaitingRoom", {
-          lobbyId: data.id,
-          playerId: savedPlayer.id,
-          name: savedPlayer.name,
+        // Wait for socket connection
+        console.log("🔄 Waiting for socket connection...");
+        const s = await waitForSocketConnection();
+        console.log("✅ Socket connected for waiting room:", s?.id);
+        
+        if (!s || !s.id) {
+          console.error("❌ Socket connection failed");
+          Alert.alert("Connection Error", "Failed to connect to game server. Please try again.");
+          return;
+        }
+
+        socketRef.current = s;
+        setSocketConnected(true);
+
+        try {
+          const data = await getLobby(code);
+          console.log("📥 Lobby fetched:", data);
+          if (!isMounted) return;
+
+          setLobby(data);
+          fetchedLobbyRef.current = data;
+
+          s.emit("joinWaitingRoom", {
+            lobbyId: data.id,
+            playerId: savedPlayer.id,
+            name: savedPlayer.name,
+          });
+          console.log("➡️ joinWaitingRoom emitted:", {
+            lobbyId: data.id,
+            playerId: savedPlayer.id,
+            name: savedPlayer.name,
+          });
+        } catch (err) {
+          console.error(err);
+          Alert.alert("Error", "Failed to join lobby.");
+        }
+
+        // Socket event listeners
+        s.on("lobbyUpdate", (updatedLobby) => {
+          console.log("📊 lobbyUpdate received:", updatedLobby);
+          if (!updatedLobby) {
+            console.log("❌ Empty lobby update received");
+            return;
+          }
+
+          // Preserve topic_id if it's missing in the update
+          if (fetchedLobbyRef.current?.topic_id && !updatedLobby.topic_id) {
+            updatedLobby.topic_id = fetchedLobbyRef.current.topic_id;
+          }
+
+          console.log(`📊 Setting lobby with ${updatedLobby.players?.length || 0} players`);
+          setLobby(updatedLobby);
+          fetchedLobbyRef.current = updatedLobby;
+
+          const me = updatedLobby.players?.find(
+            (p) => String(p.id) === String(savedPlayer.id)
+          );
+          if (me) {
+            setIsReady(me.is_ready);
+            setSelectedColor(me.color);
+          } else {
+            console.log("❌ Current player not found in lobby update");
+          }
+
+          // Update local state with lobby settings
+          if (updatedLobby.turnTime) {
+            setTurnTime(updatedLobby.turnTime);
+          }
+          if (updatedLobby.gameMode) {
+            setGameMode(updatedLobby.gameMode);
+          }
         });
-        console.log("➡️ joinWaitingRoom emitted:", {
-          lobbyId: data.id,
-          playerId: savedPlayer.id,
-          name: savedPlayer.name,
+
+        s.on("countdown", ({ timeLeft }) => {
+          console.log("⏳ Countdown:", timeLeft);
+          setCountdown(timeLeft);
         });
-      } catch (err) {
-        console.error(err);
-        Alert.alert("Error", "Failed to join lobby.");
+
+        s.on("gameSettingsUpdated", ({ turnTime: newTurnTime, gameMode: newGameMode }) => {
+          console.log("⚙️ Game settings updated:", { newTurnTime, newGameMode });
+          if (newTurnTime) setTurnTime(newTurnTime);
+          if (newGameMode) setGameMode(newGameMode);
+        });
+
+        s.on("colorUpdateFailed", ({ reason }) => {
+          Alert.alert("Color Taken", "This color is already selected by another player. Please choose a different color.");
+        });
+
+        // Unified gameStarted handler for both game modes
+        s.on("gameStarted", ({ firstTurnPlayerId, firstTurnPlayerName, turnTime: gameTurnTime, gameMode }) => {
+          console.log("🎮 Game started:", {
+            firstTurnPlayerId,
+            firstTurnPlayerName,
+            gameTurnTime,
+            gameMode
+          });
+
+          const topicId = fetchedLobbyRef.current?.topic_id;
+          console.log("📝 Starting game with topic_id:", topicId, "Game mode:", gameMode);
+
+          isNavigatingToGameRef.current = true;
+          removeWaitingRoomListeners();
+
+          // Determine which game screen to navigate to based on game mode
+          const screenName = gameMode === 2 ? "hideAndSeekGameScreen" : "challengeGameScreen";
+          
+          console.log(`🎯 Navigating to ${screenName} for game mode ${gameMode}`);
+
+          router.push({
+            pathname: screenName,
+            params: {
+              lobbyId: Number(fetchedLobbyRef.current?.id),
+              playerId: Number(savedPlayer.id),
+              playerName: savedPlayer.name,
+              code: fetchedLobbyRef.current?.code,
+              firstTurnPlayerId: Number(firstTurnPlayerId),
+              firstTurnPlayerName,
+              turnTime: Number(gameTurnTime),
+              topicId: Number(topicId),
+            },
+          });
+        });
+
+        s.on("playerLeft", ({ playerId, playerName }) => {
+          console.log(`❌ Player ${playerName} left the lobby`);
+        });
+
+      } catch (error) {
+        console.error("❌ Failed to establish socket connection:", error);
+        Alert.alert("Connection Error", "Failed to connect to game server. Please try again.");
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
+    };
 
-s.on("lobbyUpdate", (updatedLobby) => {
-  console.log("📊 lobbyUpdate received:", updatedLobby);
-  if (!updatedLobby) {
-    console.log("❌ Empty lobby update received");
-    return;
-  }
-
-  // Preserve topic_id if it's missing in the update
-  if (fetchedLobbyRef.current?.topic_id && !updatedLobby.topic_id) {
-    updatedLobby.topic_id = fetchedLobbyRef.current.topic_id;
-  }
-
-  console.log(`📊 Setting lobby with ${updatedLobby.players?.length || 0} players`);
-  setLobby(updatedLobby);
-  fetchedLobbyRef.current = updatedLobby;
-
-  const me = updatedLobby.players?.find(
-    (p) => String(p.id) === String(savedPlayer.id)
-  );
-  if (me) {
-    setIsReady(me.is_ready);
-    setSelectedColor(me.color);
-  } else {
-    console.log("❌ Current player not found in lobby update");
-  }
-
-  // Update local state with lobby settings
-  if (updatedLobby.turnTime) {
-    setTurnTime(updatedLobby.turnTime);
-  }
-  if (updatedLobby.gameMode) {
-    setGameMode(updatedLobby.gameMode);
-  }
-});
-
-s.on("countdown", ({ timeLeft }) => {
-  console.log("⏳ Countdown:", timeLeft);
-  setCountdown(timeLeft);
-});
-
-s.on("gameSettingsUpdated", ({ turnTime: newTurnTime, gameMode: newGameMode }) => {
-  console.log("⚙️ Game settings updated:", { newTurnTime, newGameMode });
-  if (newTurnTime) setTurnTime(newTurnTime);
-  if (newGameMode) setGameMode(newGameMode);
-});
-
-s.on("colorUpdateFailed", ({ reason }) => {
-  Alert.alert("Color Taken", "This color is already selected by another player. Please choose a different color.");
-});
-
-// Unified gameStarted handler for both game modes
-s.on("gameStarted", ({ firstTurnPlayerId, firstTurnPlayerName, turnTime: gameTurnTime, gameMode }) => {
-  console.log("🎮 Game started:", {
-    firstTurnPlayerId,
-    firstTurnPlayerName,
-    gameTurnTime,
-    gameMode
-  });
-
-  const topicId = fetchedLobbyRef.current?.topic_id;
-  console.log("📝 Starting game with topic_id:", topicId, "Game mode:", gameMode);
-
-  isNavigatingToGameRef.current = true;
-  removeWaitingRoomListeners();
-
-  // Determine which game screen to navigate to based on game mode
-  const screenName = gameMode === 2 ? "hideAndSeekGameScreen" : "challengeGameScreen";
-  
-  console.log(`🎯 Navigating to ${screenName} for game mode ${gameMode}`);
-
-  router.push({
-    pathname: screenName,
-    params: {
-      lobbyId: Number(fetchedLobbyRef.current?.id),
-      playerId: Number(savedPlayer.id),
-      playerName: savedPlayer.name,
-      code: fetchedLobbyRef.current?.code,
-      firstTurnPlayerId: Number(firstTurnPlayerId),
-      firstTurnPlayerName,
-      turnTime: Number(gameTurnTime),
-      topicId: Number(topicId),
-    },
-  });
-});
-
-s.on("playerLeft", ({ playerId, playerName }) => {
-  console.log(`❌ Player ${playerName} left the lobby`);
-});
-
-    })();
+    initializeSocketAndJoin();
 
     return () => {
       console.log("👋 Leaving WaitingRoom — cleaning up listeners");
@@ -253,6 +278,10 @@ s.on("playerLeft", ({ playerId, playerName }) => {
     const timer = setTimeout(() => setCountdown((prev) => prev - 1), 1000);
     return () => clearTimeout(timer);
   }, [countdown]);
+
+  if (loading) {
+    return <Text style={{ color: "#fff", textAlign: "center", marginTop: 50 }}>Connecting to game server...</Text>;
+  }
 
   if (!lobby || !player)
     return <Text style={{ color: "#fff", textAlign: "center", marginTop: 50 }}>Loading lobby...</Text>;

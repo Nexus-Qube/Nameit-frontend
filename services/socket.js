@@ -3,19 +3,24 @@ import { io } from "socket.io-client";
 
 // Use environment variable with fallback
 const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://nameit-backend.onrender.com';
+//const SOCKET_URL = 'http://192.168.0.22:3000'; // your backend URL
 
 console.log('🔌 Socket URL:', SOCKET_URL); // Debug log
 
 let socket = null;
+let isInitializing = false;
+let connectionPromise = null;
 
 /**
  * Returns the existing socket or creates a new one if not initialized.
  */
 export function getSocket() {
   if (!socket) {
+    console.log("🔄 Creating new socket connection...");
     socket = io(SOCKET_URL, {
       transports: ["websocket"],
       reconnectionAttempts: 5,
+      timeout: 10000, // Add timeout
     });
 
     // --- Logging and lifecycle events ---
@@ -44,6 +49,57 @@ export function getSocket() {
 }
 
 /**
+ * Wait for socket connection to be established
+ */
+export function waitForSocketConnection() {
+  return new Promise((resolve, reject) => {
+    const s = getSocket();
+    
+    // If already connected, resolve immediately
+    if (s.connected) {
+      console.log("✅ Socket already connected");
+      resolve(s);
+      return;
+    }
+
+    console.log("⏳ Waiting for socket connection...");
+    
+    const onConnect = () => {
+      console.log("✅ Socket connected in waitForSocketConnection");
+      cleanup();
+      resolve(s);
+    };
+
+    const onError = (error) => {
+      console.error("❌ Socket connection failed in wait:", error);
+      cleanup();
+      reject(new Error(`Socket connection failed: ${error.message}`));
+    };
+
+    const cleanup = () => {
+      s.off("connect", onConnect);
+      s.off("connect_error", onError);
+    };
+
+    // Set timeout
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("Socket connection timeout after 5 seconds"));
+    }, 5000);
+
+    s.on("connect", onConnect);
+    s.on("connect_error", onError);
+  });
+}
+
+/**
+ * Check if socket is connected
+ */
+export function isSocketConnected() {
+  return socket && socket.connected;
+}
+
+/**
  * Cleanly closes the socket connection and removes listeners.
  */
 export function closeSocket() {
@@ -69,6 +125,8 @@ export function removeWaitingRoomListeners() {
     socket.off("gameStarted");
     socket.off("playerLeft");
     socket.off("playerDisconnected");
+    socket.off("gameSettingsUpdated");
+    socket.off("colorUpdateFailed");
     console.log("🧹 Removed waiting room listeners");
   }
 }
@@ -90,6 +148,7 @@ export function removeHideSeekListeners() {
     socket.off("selectionComplete");
     socket.off("selectionFailed");
     socket.off("playerEliminated");
+    socket.off("selectionCountdown");
     console.log("🧹 Removed hide & seek listeners");
   }
 }
