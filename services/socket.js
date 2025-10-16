@@ -1,9 +1,10 @@
 // frontend/services/socket.js
 import { io } from "socket.io-client";
 
-//const SOCKET_URL = "http://192.168.0.22:3000";
-const SOCKET_URL = "https://nameit-backend.onrender.com";
+// Use environment variable with fallback
+const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://nameit-backend.onrender.com';
 
+console.log('🔌 Socket URL:', SOCKET_URL); // Debug log
 
 let socket = null;
 
@@ -61,8 +62,6 @@ export function closeSocket() {
 }
 
 // Remove specific listeners for different screens
-// Add these functions to your existing socket.js
-
 export function removeWaitingRoomListeners() {
   if (socket) {
     socket.off("lobbyUpdate");

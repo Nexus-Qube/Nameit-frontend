@@ -1,6 +1,7 @@
-//export const BASE_URL = 'http://192.168.0.22:3000'; // your backend URL
-export const BASE_URL = 'https://nameit-backend.onrender.com';
+// Use environment variable with fallback
+const BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://nameit-backend.onrender.com';
 
+console.log('🔗 API Base URL:', BASE_URL); // Debug log
 
 // ---------- Categories ----------
 export async function fetchCategories() {
