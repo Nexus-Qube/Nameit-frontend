@@ -20,8 +20,8 @@ import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelper
 import { useGameLogic } from "../hooks/useGameLogic";
 import styles from "../styles/GameScreenStyles";
 
-const solvedBorder = { uri: '/assets/images/solved_border_default.png' };
-const itemUnsolved = { uri: '/assets/images/item_unsolved.png' };
+const solvedBorder = require("../assets/images/solved_border_default.png");
+const itemUnsolved = require("../assets/images/item_unsolved.png");
 
 export default function GameScreen() {
   const { width } = Dimensions.get('window');
