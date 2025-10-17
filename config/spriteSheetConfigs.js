@@ -1,31 +1,27 @@
-// FIXED: Change from import to require()
-const NBA120 = require('../assets/images/NBA120.png');
-const spritesheet_pokemon21 = require('../assets/images/spritesheet_pokemon21.png');
-const spritesheet_lol = require('../assets/images/spritesheet_lol.png');
-const Overwatch75 = require('../assets/images/Overwatch75.png');
+// Remove these named requires at the top and use inline requires instead:
 
 // Single source of truth - all config in one place
 const spriteSheets = {
   1: {
-    src: NBA120,
+    src: require('../assets/images/NBA120.png'),
     width: 606,
     height: 727,
     fileName: 'NBA120.png',
   },
   3: {
-    src: spritesheet_pokemon21,
+    src: require('../assets/images/spritesheet_pokemon21.png'),
     width: 3871,
     height: 2904,
     fileName: 'spritesheet_pokemon21.png',
   },
   4: {
-    src: spritesheet_lol,
+    src: require('../assets/images/spritesheet_lol.png'),
     width: 1211,
     height: 2179,
     fileName: 'spritesheet_lol.png',
   },
   5: {
-    src: Overwatch75,
+    src: require('../assets/images/Overwatch75.png'),
     width: 761,
     height: 381,
     fileName: 'Overwatch75.png',

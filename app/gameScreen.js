@@ -21,9 +21,20 @@ import { useGameLogic } from "../hooks/useGameLogic";
 import styles from "../styles/GameScreenStyles";
 //import solvedBorder from "../assets/images/solved_border_default.png";
 //import itemUnsolved from "../assets/images/item_unsolved.png";
+//import { getImageSource } from '../utils/imageUtils';
 
-const solvedBorder = require("../assets/images/solved_border_default.png");
-const itemUnsolved = require("../assets/images/item_unsolved.png");
+//const solvedBorder = require("../assets/images/solved_border_default.png");
+//const itemUnsolved = require("../assets/images/item_unsolved.png");
+
+const solvedBorder = Platform.select({
+  web: { uri: '/assets/images/solved_border_default.png' },
+  default: require("../assets/images/solved_border_default.png")
+});
+
+const itemUnsolved = Platform.select({
+  web: { uri: '/assets/images/item_unsolved.png' },
+  default: require("../assets/images/item_unsolved.png")
+});
 
 export default function GameScreen() {
   const { width } = Dimensions.get('window');
