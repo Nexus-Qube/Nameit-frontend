@@ -1,7 +1,6 @@
 const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname, {
-  // [Web-only]: Enables CSS support in Metro.
   isCSSEnabled: true,
 });
 
@@ -16,10 +15,11 @@ config.resolver.assetExts = [
   'svg',
 ];
 
-// Enable asset support
+// Simple approach - disable asset hashing by using basic transformer
 config.transformer = {
   ...config.transformer,
-  assetPlugins: ['expo-asset/tools/hashAssetFiles'],
+  // Remove assetPlugins to prevent hashing
+  assetPlugins: [],
 };
 
 module.exports = config;

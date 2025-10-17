@@ -1,27 +1,48 @@
-// Remove these named requires at the top and use inline requires instead:
+import { Platform } from 'react-native';
+
+// FIXED: Use platform-specific URLs for web
+const NBA120 = Platform.select({
+  web: { uri: '/assets/images/NBA120.png' },
+  default: require('../assets/images/NBA120.png')
+});
+
+const spritesheet_pokemon21 = Platform.select({
+  web: { uri: '/assets/images/spritesheet_pokemon21.png' },
+  default: require('../assets/images/spritesheet_pokemon21.png')
+});
+
+const spritesheet_lol = Platform.select({
+  web: { uri: '/assets/images/spritesheet_lol.png' },
+  default: require('../assets/images/spritesheet_lol.png')
+});
+
+const Overwatch75 = Platform.select({
+  web: { uri: '/assets/images/Overwatch75.png' },
+  default: require('../assets/images/Overwatch75.png')
+});
 
 // Single source of truth - all config in one place
 const spriteSheets = {
   1: {
-    src: require('../assets/images/NBA120.png'),
+    src: NBA120,
     width: 606,
     height: 727,
     fileName: 'NBA120.png',
   },
   3: {
-    src: require('../assets/images/spritesheet_pokemon21.png'),
+    src: spritesheet_pokemon21,
     width: 3871,
     height: 2904,
     fileName: 'spritesheet_pokemon21.png',
   },
   4: {
-    src: require('../assets/images/spritesheet_lol.png'),
+    src: spritesheet_lol,
     width: 1211,
     height: 2179,
     fileName: 'spritesheet_lol.png',
   },
   5: {
-    src: require('../assets/images/Overwatch75.png'),
+    src: Overwatch75,
     width: 761,
     height: 381,
     fileName: 'Overwatch75.png',
