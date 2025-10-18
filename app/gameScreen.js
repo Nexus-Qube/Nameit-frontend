@@ -71,6 +71,7 @@ export default function GameScreen() {
   const scrollRef = useRef(null);
   const itemRefs = useRef({});
   const intervalRef = useRef(null);
+  const inputRef = useRef(null);
 
   // Custom hooks
   const { items, setItems, playerSolvedCount, handleItemMatch, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
@@ -154,17 +155,16 @@ export default function GameScreen() {
       clearTimer();
     }
   }, [solvedCount, items, mode]);
-
-  
+ 
   // --- Handle input ---
 const handleInputChange = (text) => {
   setInput(text);
   
-  const matched = handleItemMatch(text, 1, 1, gameOver); // Using 1 for single player
+  const matched = handleItemMatch(text, 1, 1, gameOver);
   
   if (matched) {
     console.log(`🎯 Matched item: ${matched.name}`);
-    setInput("");
+    
     incrementPlayerSolvedCount();
 
     // MANUALLY UPDATE ITEMS TO MARK AS SOLVED
@@ -179,8 +179,23 @@ const handleInputChange = (text) => {
 
     // Scroll to the solved item
     setTimeout(() => {
-      scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth);
-    }, 100);
+      console.log(`⌨️ Starting scroll process`);
+      scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth, inputRef);
+    }, 150);
+
+    // Clear input after a short delay, but maintain focus
+    setTimeout(() => {
+      console.log(`⌨️ Delayed input clear`);
+      setInput("");
+      
+      // Force focus restoration after clear
+      setTimeout(() => {
+        if (inputRef.current) {
+          console.log(`⌨️ Restoring focus after delayed clear`);
+          inputRef.current.focus();
+        }
+      }, 10);
+    }, 50);
   }
 };
 
@@ -244,6 +259,7 @@ const handleInputChange = (text) => {
 
         {/* Input Field */}
         <TextInput
+          ref={inputRef}
           placeholder="Type item name..."
           value={input}
           onChangeText={handleInputChange}
@@ -251,6 +267,24 @@ const handleInputChange = (text) => {
           autoCapitalize="none"
           autoCorrect={false}
           editable={!gameOver}
+          onBlur={() => {
+            console.log('🛑 BLUR EVENT DETECTED - immediately refocusing');
+            if (!gameOver) {
+              // Immediate refocus with multiple attempts
+              const refocusAttempt = (attempt = 0) => {
+                if (attempt < 5 && inputRef.current) {
+                  setTimeout(() => {
+                    inputRef.current.focus();
+                    console.log(`🛑 Refocus attempt ${attempt + 1}`);
+                    if (document.activeElement !== inputRef.current) {
+                      refocusAttempt(attempt + 1);
+                    }
+                  }, attempt * 50);
+                }
+              };
+              refocusAttempt(0);
+            }
+          }}
         />
 
         {/* Game Grid */}
@@ -259,7 +293,32 @@ const handleInputChange = (text) => {
           ref={scrollRef}
           showsVerticalScrollIndicator={true}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
+          // Add these props to prevent focus stealing
+          onScrollBeginDrag={(e) => {
+            console.log('🛑 Scroll began - preventing focus loss');
+            // Prevent focus loss when scroll starts
+            if (inputRef.current) {
+              inputRef.current.focus();
+            }
+          }}
+          onTouchStart={(e) => {
+            console.log('🛑 Touch started - maintaining focus');
+            // Prevent touch events from stealing focus
+            if (inputRef.current) {
+              inputRef.current.focus();
+            }
+          }}
+          // Web-specific focus prevention
+          {...(Platform.OS === 'web' && {
+            onMouseDown: (e) => {
+              console.log('🛑 Mouse down - maintaining focus');
+              // Prevent mouse events from stealing focus on web
+              if (inputRef.current) {
+                inputRef.current.focus();
+              }
+            }
+          })}
         >
           {items.map((item) => {
             const { left, top } = getSpritePosition(item.order, spriteInfo);
