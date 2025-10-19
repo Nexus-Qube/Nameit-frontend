@@ -183,9 +183,19 @@ export default function WaitingRoom() {
           removeWaitingRoomListeners();
 
           // Determine which game screen to navigate to based on game mode
-          const screenName = gameMode === 2 ? "hideAndSeekGameScreen" : "challengeGameScreen";
-          
-          console.log(`🎯 Navigating to ${screenName} for game mode ${gameMode}`);
+          let screenName;
+switch(gameMode) {
+  case 2:
+    screenName = "hideAndSeekGameScreen";
+    break;
+  case 3:
+    screenName = "trapGameScreen";
+    break;
+  default:
+    screenName = "challengeGameScreen";
+}
+
+console.log(`🎯 Navigating to ${screenName} for game mode ${gameMode}`);
 
           router.push({
             pathname: screenName,
@@ -437,6 +447,21 @@ export default function WaitingRoom() {
       disabled={!isOwner}
     >
       <Text style={styles.optionText}>Hide & Seek</Text>
+    </TouchableOpacity>
+    <TouchableOpacity
+      style={[
+        styles.optionButton,
+        gameMode === 3 && styles.selectedOption
+      ]}
+      onPress={() => {
+        if (isOwner) {
+          setGameMode(3);
+          updateGameSettings(turnTime, 3);
+        }
+      }}
+      disabled={!isOwner}
+    >
+      <Text style={styles.optionText}>Trap</Text>
     </TouchableOpacity>
   </View>
 </View>

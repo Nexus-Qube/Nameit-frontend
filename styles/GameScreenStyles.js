@@ -188,4 +188,19 @@ myHideSeekItemName: {
   lineHeight: 10,
   marginTop: 1,
 },
+trapSprungIndicator: {
+  position: 'absolute',
+  top: 5,
+  left: 5,
+  backgroundColor: 'rgba(255, 0, 0, 0.8)',
+  borderRadius: 8,
+  paddingHorizontal: 6,
+  paddingVertical: 2,
+  zIndex: 10,
+},
+trapSprungText: {
+  color: '#fff',
+  fontSize: 10,
+  fontWeight: 'bold',
+},
 });

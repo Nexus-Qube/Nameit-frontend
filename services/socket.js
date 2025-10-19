@@ -2,8 +2,9 @@
 import { io } from "socket.io-client";
 
 // Use environment variable with fallback
-const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://nameit-backend.onrender.com';
+//const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://nameit-backend.onrender.com';
 //const SOCKET_URL = 'http://192.168.0.22:3000'; // your backend URL
+const SOCKET_URL = 'http://192.168.0.243:3000';
 
 console.log('🔌 Socket URL:', SOCKET_URL); // Debug log
 
