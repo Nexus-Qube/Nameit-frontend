@@ -1,12 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
-  Text,
-  TextInput,
-  ScrollView,
-  Image,
-  Modal,
-  TouchableOpacity,
   Alert,
   Dimensions,
   KeyboardAvoidingView,
@@ -18,39 +12,13 @@ import { fetchTopicById, fetchItemsByTopic } from "../services/api";
 import { getSpriteSheetConfig } from "../config/spriteSheetConfigs";
 import { useGameLogic } from "../hooks/useGameLogic";
 import { scrollToItem } from "../helpers/scrollHelpers";
-import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelpers";
 import { initializeGameItems } from "../helpers/gameLogicHelpers";
-import { PLAYER_COLORS, getColorById } from "../constants/PlayerColors";
+import { getColorById } from "../constants/PlayerColors";
 import styles from "../styles/GameScreenStyles";
-//import itemUnsolved from "../assets/images/item_unsolved.png";
 
-const itemUnsolved = require("../assets/images/item_unsolved.png");
-// Import regular colored borders AND hide & seek borders
-const COLORED_BORDERS = {
-  red: require("../assets/images/solved_border_red.png"),
-  orange: require("../assets/images/solved_border_orange.png"),
-  yellow: require("../assets/images/solved_border_yellow.png"),
-  green: require("../assets/images/solved_border_green.png"),
-  teal: require("../assets/images/solved_border_teal.png"),
-  blue: require("../assets/images/solved_border_blue.png"),
-  purple: require("../assets/images/solved_border_purple.png"),
-  pink: require("../assets/images/solved_border_pink.png"),
-  brown: require("../assets/images/solved_border_brown.png"),
-  gray: require("../assets/images/solved_border_gray.png"),
-};
-
-const HIDE_SEEK_BORDERS = {
-  red: require("../assets/images/Hide&Seek/solved_border_red.png"),
-  orange: require("../assets/images/Hide&Seek/solved_border_orange.png"),
-  yellow: require("../assets/images/Hide&Seek/solved_border_yellow.png"),
-  green: require("../assets/images/Hide&Seek/solved_border_green.png"),
-  teal: require("../assets/images/Hide&Seek/solved_border_teal.png"),
-  blue: require("../assets/images/Hide&Seek/solved_border_blue.png"),
-  purple: require("../assets/images/Hide&Seek/solved_border_purple.png"),
-  pink: require("../assets/images/Hide&Seek/solved_border_pink.png"),
-  brown: require("../assets/images/Hide&Seek/solved_border_brown.png"),
-  gray: require("../assets/images/Hide&Seek/solved_border_gray.png"),
-};
+import GameHeader from "../components/GameHeader";
+import GameGrid from "../components/GameGrid";
+import GameModals from "../components/GameModals";
 
 export default function HideAndSeekGameScreen() {
   const { width } = Dimensions.get('window');
@@ -101,7 +69,7 @@ export default function HideAndSeekGameScreen() {
   // Hide & Seek specific states
   const [selectionModalVisible, setSelectionModalVisible] = useState(true);
   const [hideSeekInput, setHideSeekInput] = useState("");
-  const [hideSeekValidation, setHideSeekValidation] = useState(null); // Changed to null
+  const [hideSeekValidation, setHideSeekValidation] = useState(null);
   const [myHideSeekItem, setMyHideSeekItem] = useState(null);
   const [playerSelections, setPlayerSelections] = useState({});
   const [eliminatedPlayers, setEliminatedPlayers] = useState(new Set());
@@ -209,6 +177,28 @@ export default function HideAndSeekGameScreen() {
       playerId: eliminatedPlayerId,
       reason
     });
+  };
+
+  // Modal control functions
+  const handleCloseSelectionModal = () => {
+    // Only allow closing if no item is selected yet
+    if (!myHideSeekItem) {
+      setSelectionModalVisible(false);
+    }
+  };
+
+  const handleCloseCountdownModal = () => {
+    setCountdownModalVisible(false);
+  };
+
+  const handleCloseGameModal = () => {
+    setGameModalVisible(false);
+  };
+
+  const handleSelectionInputChange = (text) => {
+    setHideSeekInput(text);
+    setHideSeekValidation(null);
+    if (duplicateItemsWarning) setDuplicateItemsWarning(false);
   };
 
   // Fetch topic + items
@@ -537,24 +527,6 @@ export default function HideAndSeekGameScreen() {
     );
   };
 
-  // Get the appropriate border image
-  const getBorderImage = (solvedByPlayerId, isHideSeekItem = false) => {
-    const colorId = playerColors[solvedByPlayerId];
-    if (!colorId) return null;
-    
-    const color = getColorById(colorId);
-    if (!color || !color.name) return null;
-    
-    const colorName = color.name.toLowerCase();
-    return isHideSeekItem ? HIDE_SEEK_BORDERS[colorName] : COLORED_BORDERS[colorName];
-  };
-
-  const getMyColorDisplay = () => {
-    if (!myColor) return "No color selected";
-    const color = getColorById(myColor);
-    return color ? color.display : "No color";
-  };
-
   // --- Return to lobby ---
   const handleReturnToLobby = () => {
     if (currentTurnPlayer.id === playerId && !gameOver && timer > 0 && !selectionModalVisible) {
@@ -648,295 +620,65 @@ export default function HideAndSeekGameScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <View style={{ flex: 1, padding: 20 }}>
-        {/* Game Header */}
-        <View style={styles.topRow}>
-          <View style={styles.rowLeft}>
-            <TouchableOpacity onPress={handleReturnToLobby}>
-              <Text style={{ color: "blue", fontSize: 16 }}>Return to Lobby</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.rowSection}>
-            <Text
-              style={[
-                styles.statusMessage,
-                statusMessage === "Answer before time runs out" && { color: "yellow" },
-                statusMessage === "You lost" && { color: "red" },
-                statusMessage === "You won" && { color: "green" },
-                statusMessage === "You're out!" && { color: "red" },
-              ]}
-            >
-              {statusMessage}
-            </Text>
-          </View>
-
-          <View style={styles.rowRight}>
-            <Text style={styles.counter}>
-              {solvedCount} / {items.length}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.bottomRow}>
-          <View style={styles.rowLeft}>
-            <Text style={styles.countdown}>{timer}s</Text>
-          </View>
-
-          <View style={styles.rowSection}>
-            <Text
-              style={[
-                styles.counter,
-                currentTurnPlayer.id === playerId && { color: "green" },
-                eliminatedPlayers.has(playerId) && { color: "red" },
-              ]}
-            >
-              {eliminatedPlayers.has(playerId) 
-                ? "You're out!" 
-                : currentTurnPlayer.id === playerId
-                  ? "Your turn!"
-                  : `${currentTurnPlayer.name}'s turn`
-              }
-            </Text>
-          </View>
-
-          <View style={styles.rowRight}>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.counter}>
-                Solved {playerSolvedCount}
-              </Text>
-              {myColor && (
-                <Text style={{ color: '#fff', fontSize: 12, marginTop: 2 }}>
-                  My color: {getMyColorDisplay()}
-                </Text>
-              )}
-            </View>
-          </View>
-        </View>
-
-        <TextInput
-          placeholder={
-            eliminatedPlayers.has(playerId) 
-              ? "You're eliminated" 
-              : currentTurnPlayer.id === playerId
-                ? "Type item name..."
-                : "Wait for your turn..."
-          }
-          value={input}
-          onChangeText={handleInputChange}
-          style={[
-            styles.input,
-            (currentTurnPlayer.id !== playerId || eliminatedPlayers.has(playerId)) && { backgroundColor: "#ddd" },
-          ]}
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={currentTurnPlayer.id === playerId && !gameOver && !eliminatedPlayers.has(playerId) && !selectionModalVisible && !countdownModalVisible}
+      <View style={{ flex: 1 }}>
+        {/* Game Header Component */}
+        <GameHeader
+          onReturnToLobby={handleReturnToLobby}
+          currentTurnPlayer={currentTurnPlayer}
+          playerId={playerId}
+          timer={timer}
+          statusMessage={statusMessage}
+          solvedCount={solvedCount}
+          items={items}
+          playerSolvedCount={playerSolvedCount}
+          gameOver={gameOver}
+          input={input}
+          onInputChange={handleInputChange}
+          myColor={myColor}
+          eliminatedPlayers={eliminatedPlayers}
+          selectionModalVisible={selectionModalVisible}
+          countdownModalVisible={countdownModalVisible}
         />
 
-        <ScrollView 
-          contentContainerStyle={styles.grid} 
-          ref={scrollRef}
-          showsVerticalScrollIndicator={true}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          nativeID="game-scrollview"
-        >
-          {items.map((item) => {
-            const { left, top } = getSpritePosition(item.order, spriteInfo);
-            const isSolvedOrGameOver = item.solved || gameOver;
-            const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
-            const borderImage = item.solvedBy ? getBorderImage(item.solvedBy, item.isHideSeekItem) : null;
-            const isMyHideSeekItem = myHideSeekItem && myHideSeekItem.id === item.id;
+        {/* Game Grid Component */}
+        <GameGrid
+          items={items}
+          spriteInfo={spriteInfo}
+          itemWidth={itemWidth}
+          calculatedItemsPerRow={calculatedItemsPerRow}
+          scrollRef={scrollRef}
+          itemRefs={itemRefs}
+          gameOver={gameOver}
+          playerColors={playerColors}
+          gameMode={2} // Hide & Seek mode
+          mySpecialItem={myHideSeekItem}
+          playerSelections={playerSelections}
+          eliminatedPlayers={eliminatedPlayers}
+        />
 
-            return (
-              <View 
-                key={item.id} 
-                style={[styles.itemContainer, { width: itemWidth }]}
-                nativeID={`item-${item.id}`}
-              >
-                <View style={styles.outerContainer}>
-                  <View 
-                    style={styles.imageContainer}
-                    ref={(ref) => (itemRefs.current[item.id] = ref)}
-                  >
-                    {/* My hide & seek item indicator - ALWAYS show if it's my item */}
-                    {isMyHideSeekItem && !item.solved && (
-                      <View style={styles.myHideSeekIndicator}>
-                        <Text style={styles.myHideSeekText}>YOUR ITEM</Text>
-                      </View>
-                    )}
-
-                    {/* Show unsolved background or solved content */}
-                    {!item.solved ? (
-                      <Image 
-                        source={itemUnsolved}
-                        style={styles.unsolvedBackground}
-                      />
-                    ) : spriteInfo.noSpriteSheet ? (
-                      <View style={styles.graySquare}>
-                        <Text style={styles.checkmark}>✓</Text>
-                      </View>
-                    ) : (
-                      <Image
-                        source={spriteInfo.sheetUrl}
-                        style={{
-                          width: spriteInfo.sheetWidth * scale,
-                          height: spriteInfo.sheetHeight * scale,
-                          transform: [
-                            { translateX: -left * scale },
-                            { translateY: -top * scale },
-                          ],
-                        }}
-                      />
-                    )}
-                  </View>
-                  
-                  {/* Colored border overlay - for ALL solved items (both regular and hide & seek) */}
-                  {item.solved && borderImage && (
-                    <Image 
-                      source={borderImage}
-                      style={styles.borderOverlay}
-                    />
-                  )}
-                </View>
-
-                {/* Show item name only if it's solved OR it's game over OR it's my hide & seek item */}
-                {(isSolvedOrGameOver || isMyHideSeekItem) && (
-                  <Text
-                    style={{
-                      color: item.solved ? "#fff" : isMyHideSeekItem ? "#FFD700" : "gray",
-                      textAlign: "center",
-                      marginTop: 4,
-                      fontSize: isMyHideSeekItem ? 12 : 14,
-                      fontWeight: isMyHideSeekItem ? "bold" : "normal",
-                    }}
-                  >
-                    {item.name}
-                  </Text>
-                )}
-              </View>
-            );
-          })}
-        </ScrollView>
-
-        {/* Hide & Seek Selection Modal */}
-        <Modal visible={selectionModalVisible} transparent animationType="fade">
-          <View style={styles.modalBackground}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Choose Your Hide & Seek Item</Text>
-              <Text style={styles.modalText}>
-                Select an item that other players will try to find. If someone finds your item, you're eliminated!
-              </Text>
-              
-              {duplicateItemsWarning && (
-                <Text style={[styles.modalText, { color: 'red', fontWeight: 'bold' }]}>
-                  ⚠️ There are players that chose the same item, choose again!
-                </Text>
-              )}
-              
-              <TextInput
-                placeholder="Type item name..."
-                value={hideSeekInput}
-                onChangeText={(text) => {
-                  setHideSeekInput(text);
-                  setHideSeekValidation(null);
-                  if (duplicateItemsWarning) setDuplicateItemsWarning(false);
-                }}
-                style={[
-                  styles.input,
-                  { marginBottom: 10, width: '100%' }
-                ]}
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!myHideSeekItem}
-              />
-              
-              {/* Fixed validation text - only render when there's actual content */}
-              {hideSeekValidation && hideSeekValidation.trim() !== "" && (
-                <Text style={[
-                  { marginBottom: 15, textAlign: 'center' },
-                  hideSeekValidation === "Good choice!" ? { color: 'green' } : { color: 'red' }
-                ]}>
-                  {hideSeekValidation}
-                </Text>
-              )}
-              
-              {myHideSeekItem ? (
-                <Text style={[styles.modalText, { color: 'green', fontWeight: 'bold' }]}>
-                  ✅ You selected: {myHideSeekItem.name}
-                </Text>
-              ) : (
-                <TouchableOpacity 
-                  style={[styles.modalButton, { backgroundColor: '#007AFF' }]}
-                  onPress={handleHideSeekConfirm}
-                >
-                  <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold' }}>
-                    Confirm Selection
-                  </Text>
-                </TouchableOpacity>
-              )}
-              
-              <Text style={[styles.modalText, { fontSize: 14, color: '#666' }]}>
-                Waiting for all players to choose their items...
-              </Text>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Game Start Countdown Modal */}
-        <Modal visible={countdownModalVisible} transparent animationType="fade">
-          <View style={styles.modalBackground}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Game Starting</Text>
-              <View style={{ alignItems: 'center', marginVertical: 10 }}>
-                <Text style={[styles.modalText, { fontSize: 48, fontWeight: 'bold', color: '#FFD700' }]}>
-                  {String(gameStartCountdown)}
-                </Text>
-              </View>
-              <Text style={styles.modalText}>
-                {gameStartCountdown > 0 ? 'Get ready!' : 'Game starting now!'}
-              </Text>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Game Over Modal */}
-        <Modal visible={gameModalVisible} transparent animationType="fade">
-          <View style={styles.modalBackground}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Game Over</Text>
-              {winner && (
-                <Text style={{ fontWeight: "bold", marginBottom: 8, fontSize: 18 }}>
-                  Winner: {winner.name}
-                </Text>
-              )}
-              <Text style={styles.modalText}>
-                Solved {solvedCount} / {items.length} items
-              </Text>
-              <Text style={styles.modalText}>
-                You solved {playerSolvedCount} items
-              </Text>
-
-              <TouchableOpacity onPress={() => setGameModalVisible(false)} style={styles.modalButton}>
-                <Text style={{ color: "red", fontSize: 16 }}>
-                  Close
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={handleReturnToLobby} style={styles.modalButton}>
-                <Text style={{ color: "blue", fontSize: 16 }}>
-                  Return to Lobby
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={handleLeaveGame} style={styles.modalButton}>
-                <Text style={{ color: "gray", fontSize: 16 }}>
-                  Leave Game
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
+        {/* Game Modals Component */}
+        <GameModals
+          selectionModalVisible={selectionModalVisible}
+          countdownModalVisible={countdownModalVisible}
+          gameModalVisible={gameModalVisible}
+          onCloseSelectionModal={handleCloseSelectionModal}
+          onCloseCountdownModal={handleCloseCountdownModal}
+          onCloseGameModal={handleCloseGameModal}
+          selectionInput={hideSeekInput}
+          onSelectionInputChange={handleSelectionInputChange}
+          selectionValidation={hideSeekValidation}
+          onSelectionConfirm={handleHideSeekConfirm}
+          mySpecialItem={myHideSeekItem}
+          duplicateItemsWarning={duplicateItemsWarning}
+          gameStartCountdown={gameStartCountdown}
+          winner={winner}
+          solvedCount={solvedCount}
+          playerSolvedCount={playerSolvedCount}
+          items={items}
+          onReturnToLobby={handleReturnToLobby}
+          onLeaveGame={handleLeaveGame}
+          gameMode={2} // Hide & Seek mode
+        />
       </View>
     </KeyboardAvoidingView>
   );
