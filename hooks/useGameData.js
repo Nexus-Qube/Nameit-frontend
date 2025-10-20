@@ -1,8 +1,8 @@
-// frontend/hooks/useGameData.js - UPDATED VERSION
-import { useState, useEffect } from 'react';
-import { fetchTopicById, fetchItemsByTopic } from '../services/api';
-import { getSpriteSheetConfig } from '../config/spriteSheetConfigs';
-import { initializeGameItems } from '../helpers/gameLogicHelpers';
+// hooks/useGameData.js
+import { useState, useEffect } from "react";
+import { fetchTopicById, fetchItemsByTopic } from "../services/api";
+import { getSpriteSheetConfig } from "../config/spriteSheetConfigs";
+import { initializeGameItems } from "../helpers/gameLogicHelpers";
 
 export const useGameData = (topicId) => {
   const [spriteInfo, setSpriteInfo] = useState({
@@ -14,21 +14,22 @@ export const useGameData = (topicId) => {
     sheetUrl: null,
     noSpriteSheet: false,
   });
-  const [items, setItems] = useState([]); // ADD ITEMS STATE
-  const [loading, setLoading] = useState(false);
+  
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [initialItems, setInitialItems] = useState([]);
 
   useEffect(() => {
     if (!topicId) return;
 
     const fetchData = async () => {
       try {
-        setLoading(true);
+        setIsLoading(true);
         setError(null);
-
+        
         const topicData = await fetchTopicById(topicId);
         if (!topicData) {
-          setError('Topic not found');
+          setError("Topic not found");
           return;
         }
 
@@ -45,9 +46,7 @@ export const useGameData = (topicId) => {
 
         const itemsData = await fetchItemsByTopic(topicId);
         const initializedItems = initializeGameItems(itemsData, topicData);
-        setItems(initializedItems); // SET ITEMS HERE
-        
-        setLoading(false);
+        setInitialItems(initializedItems);
         
         if (spriteConfig.noSpriteSheet) {
           console.log(`ℹ️ No sprite sheet for topic ${topicId}, using gray squares with checkmarks`);
@@ -57,12 +56,18 @@ export const useGameData = (topicId) => {
       } catch (err) {
         console.error("Error fetching topic/items:", err);
         setError(err.message);
-        setLoading(false);
+      } finally {
+        setIsLoading(false);
       }
     };
 
     fetchData();
   }, [topicId]);
 
-  return { spriteInfo, items, setItems, loading, error }; // RETURN ITEMS AND SETITEMS
+  return {
+    spriteInfo,
+    initialItems,
+    isLoading,
+    error
+  };
 };

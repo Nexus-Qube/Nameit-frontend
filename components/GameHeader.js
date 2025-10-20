@@ -1,3 +1,4 @@
+// frontend\components\GameHeader.js
 import React from 'react';
 import {
   View,
@@ -6,11 +7,13 @@ import {
   TouchableOpacity,
   Alert,
 } from "react-native";
+import { getColorById } from "../constants/PlayerColors";
 import styles from "../styles/GameScreenStyles";
 
 export default function GameHeader({
   // Navigation
   onReturnToLobby,
+  onExitGame,
   
   // Game state
   currentTurnPlayer,
@@ -33,6 +36,11 @@ export default function GameHeader({
   // Optional: selection phase states
   selectionModalVisible = false,
   countdownModalVisible = false,
+  
+  // Single player specific props
+  isSinglePlayer = false,
+  gameMode = "countdown", // "countdown" or "fastest"
+  formattedTime = "",
 }) {
   const getMyColorDisplay = () => {
     if (!myColor) return "No color selected";
@@ -40,7 +48,7 @@ export default function GameHeader({
     return color ? color.display : "No color";
   };
 
-  const isMyTurn = Number(currentTurnPlayer.id) === Number(playerId);
+  const isMyTurn = isSinglePlayer ? true : Number(currentTurnPlayer?.id) === Number(playerId);
   const isEliminated = eliminatedPlayers && eliminatedPlayers.has(playerId);
   const isInputDisabled = !isMyTurn || gameOver || isEliminated || selectionModalVisible || countdownModalVisible;
 
@@ -49,77 +57,105 @@ export default function GameHeader({
       {/* Top Row */}
       <View style={styles.topRow}>
         <View style={styles.rowLeft}>
-          <TouchableOpacity onPress={onReturnToLobby}>
-            <Text style={{ color: "blue", fontSize: 16 }}>Return to Lobby</Text>
-          </TouchableOpacity>
+          {isSinglePlayer ? (
+            <TouchableOpacity onPress={onExitGame}>
+              <Text style={{ color: "blue", fontSize: 16 }}>Exit Game</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={onReturnToLobby}>
+              <Text style={{ color: "blue", fontSize: 16 }}>Return to Lobby</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.rowSection}>
-          <Text
-            style={[
-              styles.statusMessage,
-              statusMessage === "Answer before time runs out" && { color: "yellow" },
-              statusMessage === "You lost" && { color: "red" },
-              statusMessage === "You won" && { color: "green" },
-              statusMessage === "You're out!" && { color: "red" },
-            ]}
-          >
-            {statusMessage}
-          </Text>
+          {isSinglePlayer ? (
+            <Text style={styles.counter}>
+              {solvedCount} / {items?.length || 0}
+            </Text>
+          ) : (
+            <Text
+              style={[
+                styles.statusMessage,
+                statusMessage === "Answer before time runs out" && { color: "yellow" },
+                statusMessage === "You lost" && { color: "red" },
+                statusMessage === "You won" && { color: "green" },
+                statusMessage === "You're out!" && { color: "red" },
+              ]}
+            >
+              {statusMessage}
+            </Text>
+          )}
         </View>
 
         <View style={styles.rowRight}>
-          <Text style={styles.counter}>
-            {solvedCount} / {items?.length || 0}
-          </Text>
+          {isSinglePlayer ? (
+            <Text style={styles.countdown}>
+              {formattedTime}
+            </Text>
+          ) : (
+            <Text style={styles.counter}>
+              {solvedCount} / {items?.length || 0}
+            </Text>
+          )}
         </View>
       </View>
 
       {/* Bottom Row */}
       <View style={styles.bottomRow}>
         <View style={styles.rowLeft}>
-          <Text style={styles.countdown}>{timer}s</Text>
+          {!isSinglePlayer && (
+            <Text style={styles.countdown}>{timer}s</Text>
+          )}
         </View>
 
         <View style={styles.rowSection}>
-          <Text
-            style={[
-              styles.counter,
-              isMyTurn && { color: "green" },
-              isEliminated && { color: "red" },
-            ]}
-          >
-            {isEliminated 
-              ? "You're out!" 
-              : isMyTurn
-                ? "Your turn!"
-                : `${currentTurnPlayer.name}'s turn`
-            }
-          </Text>
+          {isSinglePlayer ? (
+            <Text style={styles.counter}>
+              You solved {playerSolvedCount}
+            </Text>
+          ) : (
+            <Text
+              style={[
+                styles.counter,
+                isMyTurn && { color: "green" },
+                isEliminated && { color: "red" },
+              ]}
+            >
+              {isEliminated 
+                ? "You're out!" 
+                : isMyTurn
+                  ? "Your turn!"
+                  : `${currentTurnPlayer?.name || 'Unknown'}'s turn`
+              }
+            </Text>
+          )}
         </View>
 
         <View style={styles.rowRight}>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.counter}>
-              Solved {playerSolvedCount}
-            </Text>
-            {myColor && (
+          {!isSinglePlayer && myColor && (
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.counter}>
+                Solved {playerSolvedCount}
+              </Text>
               <Text style={{ color: '#fff', fontSize: 12, marginTop: 2 }}>
                 My color: {getMyColorDisplay()}
               </Text>
-            )}
-          </View>
+            </View>
+          )}
         </View>
       </View>
 
       {/* Input Field */}
       <TextInput
         placeholder={
-          isEliminated 
-            ? "You're eliminated" 
-            : isMyTurn
-              ? "Type item name..."
-              : "Wait for your turn..."
+          isSinglePlayer
+            ? "Type item name..."
+            : isEliminated 
+              ? "You're eliminated" 
+              : isMyTurn
+                ? "Type item name..."
+                : "Wait for your turn..."
         }
         value={input}
         onChangeText={onInputChange}
@@ -134,6 +170,3 @@ export default function GameHeader({
     </View>
   );
 }
-
-// Helper function (you might want to move this to a shared utils file)
-import { getColorById } from "../constants/PlayerColors";

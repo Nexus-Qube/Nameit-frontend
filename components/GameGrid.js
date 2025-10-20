@@ -1,3 +1,4 @@
+// frontend\components\GameGrid.js
 import React from 'react';
 import {
   View,
@@ -11,6 +12,7 @@ import { PLAYER_COLORS, getColorById } from "../constants/PlayerColors";
 import styles from "../styles/GameScreenStyles";
 
 const itemUnsolved = require("../assets/images/item_unsolved.png");
+const solvedBorderDefault = require("../assets/images/solved_border_default.png"); // ADD THIS BACK
 
 // Import border images
 const COLORED_BORDERS = {
@@ -61,22 +63,30 @@ export default function GameGrid({
   mySpecialItem = null, // hide & seek or trap item
   playerSelections = {},
   eliminatedPlayers = new Set(),
+  
+  // Single player support
+  isSinglePlayer = false, // ADD THIS PROP
 }) {
   const getBorderImage = (solvedByPlayerId, isSpecialItem = false) => {
+    // For single player, always use default border
+    if (isSinglePlayer) {
+      return solvedBorderDefault;
+    }
+    
     const colorId = playerColors[solvedByPlayerId];
-    if (!colorId) return null;
+    if (!colorId) return solvedBorderDefault; // Fallback to default
     
     const color = getColorById(colorId);
-    if (!color || !color.name) return null;
+    if (!color || !color.name) return solvedBorderDefault; // Fallback to default
     
     const colorName = color.name.toLowerCase();
     
     // Use special borders for hide & seek and trap modes
     if (isSpecialItem && (gameMode === 2 || gameMode === 3)) {
-      return HIDE_SEEK_BORDERS[colorName];
+      return HIDE_SEEK_BORDERS[colorName] || solvedBorderDefault;
     }
     
-    return COLORED_BORDERS[colorName];
+    return COLORED_BORDERS[colorName] || solvedBorderDefault;
   };
 
   const renderItem = (item) => {

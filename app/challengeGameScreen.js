@@ -1,3 +1,4 @@
+// frontend\app\challengeGameScreen.js
 import { useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
@@ -8,11 +9,9 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { getSocket, removeGameListeners } from "../services/socket";
-import { fetchTopicById, fetchItemsByTopic } from "../services/api";
-import { getSpriteSheetConfig } from "../config/spriteSheetConfigs";
+import { useGameData } from "../hooks/useGameData";
 import { useGameLogic } from "../hooks/useGameLogic";
 import { scrollToItem } from "../helpers/scrollHelpers";
-import { initializeGameItems } from "../helpers/gameLogicHelpers";
 import { getColorById } from "../constants/PlayerColors";
 import styles from "../styles/GameScreenStyles";
 
@@ -58,15 +57,6 @@ export default function ChallengeGameScreen() {
   const [gameOver, setGameOver] = useState(false);
   const [winner, setWinner] = useState(null);
   const [input, setInput] = useState("");
-  const [spriteInfo, setSpriteInfo] = useState({
-    spriteSize: 0,
-    margin: 1,
-    spritesPerRow: 0,
-    sheetWidth: 0,
-    sheetHeight: 0,
-    sheetUrl: null,
-    noSpriteSheet: false,
-  });
   const [gameModalVisible, setGameModalVisible] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Answer before time runs out");
   const [playerColors, setPlayerColors] = useState({});
@@ -82,7 +72,16 @@ export default function ChallengeGameScreen() {
   currentTurnRef.current = currentTurnPlayer.id;
 
   // Custom hooks
+  const { spriteInfo, initialItems, isLoading, error } = useGameData(topicId);
   const { items, setItems, playerSolvedCount, handleItemMatch, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
+
+  // Initialize items when useGameData loads them
+  useEffect(() => {
+    if (initialItems.length > 0) {
+      console.log(`📦 Setting ${initialItems.length} initial items in useGameLogic`);
+      setItems(initialItems);
+    }
+  }, [initialItems, setItems]);
 
   // Timer functions
   const clearTimer = () => {
@@ -106,43 +105,6 @@ export default function ChallengeGameScreen() {
       });
     }, 1000);
   };
-
-  // Fetch topic + items using API
-  useEffect(() => {
-    if (!topicId) return;
-
-    const fetchData = async () => {
-      try {
-        const topicData = await fetchTopicById(topicId);
-        if (!topicData) return;
-
-        const spriteConfig = getSpriteSheetConfig(topicId);
-        setSpriteInfo({
-          spriteSize: topicData.sprite_size,
-          margin: 1,
-          spritesPerRow: topicData.sprites_per_row,
-          sheetWidth: spriteConfig.width,
-          sheetHeight: spriteConfig.height,
-          sheetUrl: spriteConfig.src,
-          noSpriteSheet: spriteConfig.noSpriteSheet || false,
-        });
-
-        const itemsData = await fetchItemsByTopic(topicId);
-        const initializedItems = initializeGameItems(itemsData, topicData);
-        setItems(initializedItems);
-        
-        if (spriteConfig.noSpriteSheet) {
-          console.log(`ℹ️ No sprite sheet for topic ${topicId}, using gray squares with checkmarks`);
-        } else {
-          console.log(`✅ Loaded sprite sheet for topic ${topicId}: ${spriteConfig.fileName}`);
-        }
-      } catch (err) {
-        console.error("Error fetching topic/items:", err);
-      }
-    };
-
-    fetchData();
-  }, [topicId]);
 
   // Socket listeners
   useEffect(() => {
