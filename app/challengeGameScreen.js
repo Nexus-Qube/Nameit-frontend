@@ -84,22 +84,40 @@ export default function ChallengeGameScreen() {
 
   // Initialize sound service
   useEffect(() => {
+    let mounted = true;
+
     const initializeSounds = async () => {
       try {
-        await soundService.loadSounds();
-        setSoundsReady(true);
-        console.log('🔊 Sounds initialized successfully for challenge game');
+        console.log('🎮 Starting sound initialization for challenge game...');
+        
+        // Wait for sounds to load with timeout
+        const loadPromise = soundService.loadSounds();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Sound loading timeout')), 10000)
+        );
+        
+        await Promise.race([loadPromise, timeoutPromise]);
+        
+        if (mounted) {
+          setSoundsReady(true);
+          console.log('✅ Sounds ready for challenge game');
+        }
       } catch (error) {
-        console.error('🔇 Failed to initialize sounds:', error);
-        setSoundsReady(false);
+        console.error('❌ Sound initialization failed:', error);
+        if (mounted) {
+          setSoundsReady(false);
+        }
+        // Game continues without sounds
       }
     };
 
+    // Don't block game start on sound loading
     initializeSounds();
 
-    // Cleanup sounds on unmount
     return () => {
-      soundService.unloadSounds();
+      mounted = false;
+      // Don't unload sounds immediately as they might be needed by other components
+      // soundService.unloadSounds();
     };
   }, []);
 
