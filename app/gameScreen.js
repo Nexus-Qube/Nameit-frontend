@@ -46,6 +46,7 @@ export default function GameScreen() {
   const [time, setTime] = useState(mode === "countdown" ? 60 : 0);
   const [gameOver, setGameOver] = useState(false);
   const [gameModalVisible, setGameModalVisible] = useState(false);
+  const [soundsReady, setSoundsReady] = useState(false);
 
   const scrollRef = useRef(null);
   const itemRefs = useRef({});
@@ -58,15 +59,40 @@ export default function GameScreen() {
 
   // Initialize sound service on component mount
   useEffect(() => {
+    let mounted = true;
+
     const initializeSounds = async () => {
-      await soundService.loadSounds();
+      try {
+        console.log('🎮 Starting sound initialization for single player game...');
+        
+        // Wait for sounds to load with timeout
+        const loadPromise = soundService.loadSounds();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Sound loading timeout')), 10000)
+        );
+        
+        await Promise.race([loadPromise, timeoutPromise]);
+        
+        if (mounted) {
+          setSoundsReady(true);
+          console.log('✅ Sounds ready for single player game');
+        }
+      } catch (error) {
+        console.error('❌ Sound initialization failed:', error);
+        if (mounted) {
+          setSoundsReady(false);
+        }
+        // Game continues without sounds
+      }
     };
 
+    // Don't block game start on sound loading
     initializeSounds();
 
-    // Cleanup sounds on unmount
     return () => {
-      soundService.unloadSounds();
+      mounted = false;
+      // Don't unload sounds immediately as they might be needed by other components
+      // soundService.unloadSounds();
     };
   }, []);
 
@@ -160,7 +186,12 @@ export default function GameScreen() {
       incrementPlayerSolvedCount();
 
       // Play item solved sound
-      await soundService.playSound('item-solved');
+      if (soundsReady) {
+        console.log('🔊 Playing item-solved sound');
+        await soundService.playSound('item-solved');
+      } else {
+        console.log('🔇 Sounds not ready, skipping sound');
+      }
 
       // MANUALLY UPDATE ITEMS TO MARK AS SOLVED
       setItems(prev => prev.map(item => 
