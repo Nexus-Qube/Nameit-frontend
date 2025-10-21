@@ -1,4 +1,4 @@
-// frontend\app\challengeGameScreen.js
+// frontend/app/challengeGameScreen.js
 import { useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
@@ -11,6 +11,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { getSocket, removeGameListeners } from "../services/socket";
 import { useGameData } from "../hooks/useGameData";
 import { useGameLogic } from "../hooks/useGameLogic";
+import { useTurnBasedFocus } from "../hooks/useTurnBasedFocus"; // ADD THIS IMPORT
 import { scrollToItem } from "../helpers/scrollHelpers";
 import { getColorById } from "../constants/PlayerColors";
 import styles from "../styles/GameScreenStyles";
@@ -67,6 +68,7 @@ export default function ChallengeGameScreen() {
   const currentTurnRef = useRef(currentTurnPlayer.id);
   const intervalRef = useRef(null);
   const hasLeftRef = useRef(false);
+  const inputRef = useRef(null);
 
   const socket = getSocket();
   currentTurnRef.current = currentTurnPlayer.id;
@@ -74,6 +76,12 @@ export default function ChallengeGameScreen() {
   // Custom hooks
   const { spriteInfo, initialItems, isLoading, error } = useGameData(topicId);
   const { items, setItems, playerSolvedCount, handleItemMatch, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
+
+  // Calculate if it's my turn
+  const isMyTurn = currentTurnPlayer.id === playerId;
+
+  // Use the custom hook for focus management
+  useTurnBasedFocus(isMyTurn, gameOver, inputRef, "marathon");
 
   // Initialize items when useGameData loads them
   useEffect(() => {
@@ -219,7 +227,7 @@ export default function ChallengeGameScreen() {
         itemId: matched.id,
       });
 
-      // Scroll to the solved item
+      // Scroll to the solved item - WITHOUT aggressive refocus
       setTimeout(() => {
         scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth);
       }, 100);
@@ -295,6 +303,7 @@ export default function ChallengeGameScreen() {
           gameOver={gameOver}
           input={input}
           onInputChange={handleInputChange}
+          inputRef={inputRef}
           myColor={myColor}
         />
 

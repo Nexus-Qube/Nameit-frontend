@@ -28,6 +28,9 @@ export default function GameHeader({
   // Input handling
   input,
   onInputChange,
+  inputRef = null,
+  onInputFocus = () => {},
+  onInputBlur = () => {},
   
   // Player info
   myColor,
@@ -148,6 +151,7 @@ export default function GameHeader({
 
       {/* Input Field */}
       <TextInput
+        ref={inputRef}
         placeholder={
           isSinglePlayer
             ? "Type item name..."
@@ -159,6 +163,8 @@ export default function GameHeader({
         }
         value={input}
         onChangeText={onInputChange}
+        onFocus={onInputFocus}
+        onBlur={onInputBlur}   
         style={[
           styles.input,
           isInputDisabled && { backgroundColor: "#ddd" },

@@ -11,6 +11,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useGameData } from "../hooks/useGameData";
 import { useGameLogic } from "../hooks/useGameLogic";
+import { useTurnBasedFocus } from "../hooks/useTurnBasedFocus";
 import { scrollToItem } from "../helpers/scrollHelpers";
 import styles from "../styles/GameScreenStyles";
 
@@ -61,6 +62,27 @@ export default function GameScreen() {
       setItems(initialItems);
     }
   }, [initialItems, setItems]);
+
+  // --- AUTO-FOCUS ON EVERY RENDER ---
+  useEffect(() => {
+    // Focus input on every render, but only if game is not over
+    if (!gameOver && inputRef.current) {
+      const focusInput = () => {
+        if (inputRef.current && document.activeElement !== inputRef.current) {
+          console.log('⌨️ Auto-focusing input on render');
+          inputRef.current.focus();
+        }
+      };
+      
+      // Immediate focus
+      focusInput();
+      
+      // Additional focus attempts to ensure it sticks
+      setTimeout(focusInput, 10);
+      setTimeout(focusInput, 50);
+      setTimeout(focusInput, 100);
+    }
+  }); // No dependencies - runs on every render
 
   // --- Timer functions ---
   const clearTimer = () => {
@@ -138,18 +160,10 @@ export default function GameScreen() {
         scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth, inputRef);
       }, 150);
 
-      // Clear input after a short delay, but maintain focus
+      // Clear input after a short delay
       setTimeout(() => {
         console.log(`⌨️ Delayed input clear`);
         setInput("");
-        
-        // Force focus restoration after clear
-        setTimeout(() => {
-          if (inputRef.current) {
-            console.log(`⌨️ Restoring focus after delayed clear`);
-            inputRef.current.focus();
-          }
-        }, 10);
       }, 50);
     }
   };
@@ -194,6 +208,7 @@ export default function GameScreen() {
           gameOver={gameOver}
           input={input}
           onInputChange={handleInputChange}
+          inputRef={inputRef}
         />
 
         {/* Game Grid Component */}
@@ -206,8 +221,8 @@ export default function GameScreen() {
           itemRefs={itemRefs}
           gameOver={gameOver}
           playerColors={{}}
-          gameMode={1} // Single player uses marathon mode styling
-          isSinglePlayer={true} // ADD THIS LINE
+          gameMode={1}
+          isSinglePlayer={true}
         />
 
         {/* Game Modals Component */}
@@ -220,7 +235,7 @@ export default function GameScreen() {
           items={items}
           onReturnToLobby={handleRestartGame}
           onLeaveGame={handleExitGame}
-          gameMode={1} // Single player uses marathon mode
+          gameMode={1}
         />
       </View>
     </KeyboardAvoidingView>

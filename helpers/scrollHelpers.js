@@ -3,7 +3,6 @@ import { Platform, Dimensions } from "react-native";
 
 export const scrollToItem = (itemRefs, scrollRef, itemId, allItems = [], itemsPerRow, itemWidth, inputRef = null) => {
   console.log(`🎯 Scroll called for item: ${itemId}`);
-  console.log(`⌨️ Focus before scroll:`, inputRef?.current ? document.activeElement === inputRef.current : 'No input ref');
   
   if (!scrollRef.current) {
     console.log('❌ Scroll ref not available');
@@ -46,13 +45,13 @@ export const scrollToItem = (itemRefs, scrollRef, itemId, allItems = [], itemsPe
       
       // Use scroll end detection instead of fixed timeout
       detectScrollEnd(scrollRef, scrollStartY, finalScrollY, () => {
-        console.log(`⌨️ Scroll animation completed, restoring focus`);
-        restoreFocusAggressively(inputRef);
+        console.log(`⌨️ Scroll animation completed`);
+        // Focus is now handled at component level - no aggressive refocus needed
       });
       
     } catch (error) {
       console.log('Index scroll error:', error);
-      useMeasurementFallback(itemRefs, scrollRef, itemId, inputRef);
+      useMeasurementFallback(itemRefs, scrollRef, itemId);
     }
   }, 100);
 };
@@ -63,7 +62,7 @@ const detectScrollEnd = (scrollRef, startY, targetY, onComplete, attempts = 0) =
   const checkInterval = 100;
   
   if (attempts >= maxAttempts) {
-    console.log(`⌨️ Scroll detection timeout, forcing focus`);
+    console.log(`⌨️ Scroll detection timeout`);
     onComplete();
     return;
   }
@@ -85,49 +84,10 @@ const detectScrollEnd = (scrollRef, startY, targetY, onComplete, attempts = 0) =
   }, checkInterval);
 };
 
-// More aggressive focus restoration
-const restoreFocusAggressively = (inputRef, attempt = 0) => {
-  const maxAttempts = 10;
-  
-  if (attempt >= maxAttempts) {
-    console.log(`⌨️ Max aggressive focus attempts reached`);
-    return;
-  }
-  
-  setTimeout(() => {
-    console.log(`⌨️ Aggressive focus attempt ${attempt + 1}/${maxAttempts}`);
-    
-    if (inputRef?.current) {
-      // Force focus and prevent any default behaviors
-      inputRef.current.focus();
-      
-      // Additional web-specific focus enforcement
-      if (Platform.OS === 'web' && inputRef.current) {
-        const inputElement = inputRef.current;
-        inputElement.focus({ preventScroll: true });
-        
-        // Blur any other potentially focused elements
-        if (document.activeElement && document.activeElement !== inputElement) {
-          document.activeElement.blur();
-        }
-      }
-      
-      const isFocused = document.activeElement === inputRef.current;
-      console.log(`⌨️ Aggressive focus attempt ${attempt + 1} result:`, isFocused);
-      
-      if (!isFocused) {
-        restoreFocusAggressively(inputRef, attempt + 1);
-      }
-    }
-  }, attempt * 50); // 0ms, 50ms, 100ms, etc.
-};
-
-const useMeasurementFallback = (itemRefs, scrollRef, itemId, inputRef = null) => {
+const useMeasurementFallback = (itemRefs, scrollRef, itemId) => {
   const itemRef = itemRefs.current[itemId];
   
   if (!itemRef || !scrollRef.current) return;
-
-  console.log(`⌨️ Using measurement fallback, focus before:`, inputRef?.current ? document.activeElement === inputRef.current : 'No input ref');
 
   const scrollStartY = scrollRef.current.contentOffset?.y || 0;
 
@@ -138,8 +98,7 @@ const useMeasurementFallback = (itemRefs, scrollRef, itemId, inputRef = null) =>
       scrollRef.current.scrollTo({ y: Math.max(0, scrollY), animated: true, duration: 200 });
       
       detectScrollEnd(scrollRef, scrollStartY, scrollY, () => {
-        console.log(`⌨️ Web fallback scroll completed, restoring focus`);
-        restoreFocusAggressively(inputRef);
+        console.log(`⌨️ Web fallback scroll completed`);
       });
     });
   } else {
@@ -151,8 +110,7 @@ const useMeasurementFallback = (itemRefs, scrollRef, itemId, inputRef = null) =>
         scrollRef.current.scrollTo({ y: Math.max(0, scrollY), animated: true, duration: 200 });
         
         detectScrollEnd(scrollRef, scrollStartY, scrollY, () => {
-          console.log(`⌨️ Mobile fallback scroll completed, restoring focus`);
-          restoreFocusAggressively(inputRef);
+          console.log(`⌨️ Mobile fallback scroll completed`);
         });
       },
       (error) => {

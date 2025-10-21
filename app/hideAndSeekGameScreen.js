@@ -10,6 +10,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { getSocket, removeGameListeners } from "../services/socket";
 import { useGameData } from "../hooks/useGameData";
 import { useGameLogic } from "../hooks/useGameLogic";
+import { useTurnBasedFocus } from "../hooks/useTurnBasedFocus"; // ADD THIS IMPORT
 import { scrollToItem } from "../helpers/scrollHelpers";
 import { getColorById } from "../constants/PlayerColors";
 import styles from "../styles/GameScreenStyles";
@@ -81,6 +82,7 @@ export default function HideAndSeekGameScreen() {
   const handlersRegisteredRef = useRef(false);
   const selectionCompleteProcessedRef = useRef(false);
   const timerValueRef = useRef(turnTime);
+  const inputRef = useRef(null); // ADD THIS REF
 
   const socket = getSocket();
   currentTurnRef.current = currentTurnPlayer.id;
@@ -88,6 +90,16 @@ export default function HideAndSeekGameScreen() {
   // Custom hooks
   const { spriteInfo, initialItems, isLoading, error } = useGameData(topicId);
   const { items, setItems, playerSolvedCount, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
+
+  // Calculate if it's my turn (considering selection phase and elimination)
+  const isMyTurn = 
+    currentTurnPlayer.id === playerId && 
+    !selectionModalVisible && 
+    !countdownModalVisible && 
+    !eliminatedPlayers.has(playerId);
+
+  // Use the custom hook for focus management
+  useTurnBasedFocus(isMyTurn, gameOver, inputRef, "hide-seek");
 
   // Initialize items when useGameData loads them
   useEffect(() => {
@@ -601,6 +613,7 @@ export default function HideAndSeekGameScreen() {
           gameOver={gameOver}
           input={input}
           onInputChange={handleInputChange}
+          inputRef={inputRef} // PASS THE REF
           myColor={myColor}
           eliminatedPlayers={eliminatedPlayers}
           selectionModalVisible={selectionModalVisible}
