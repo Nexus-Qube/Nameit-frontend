@@ -10,7 +10,10 @@ const findMatchingItem = (items, input, currentTurnPlayerId, playerId, gameOver)
   return items.find(
     (item) =>
       !item.solved &&
-      item.name.toLowerCase() === normalizedInput
+      item.correct && // Check if correct array exists
+      item.correct.some(correctAnswer => 
+        correctAnswer.toLowerCase() === normalizedInput
+      )
   );
 };
 
