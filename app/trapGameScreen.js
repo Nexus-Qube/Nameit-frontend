@@ -11,9 +11,10 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { getSocket, removeGameListeners } from "../services/socket";
 import { useGameData } from "../hooks/useGameData";
 import { useGameLogic } from "../hooks/useGameLogic";
-import { useTurnBasedFocus } from "../hooks/useTurnBasedFocus"; // ADD THIS IMPORT
+import { useTurnBasedFocus } from "../hooks/useTurnBasedFocus";
 import { scrollToItem } from "../helpers/scrollHelpers";
 import { getColorById } from "../constants/PlayerColors";
+import soundService from "../services/soundService";
 import styles from "../styles/GameScreenStyles";
 
 import GameHeader from "../components/GameHeader";
@@ -69,6 +70,7 @@ export default function TrapGameScreen() {
   const [statusMessage, setStatusMessage] = useState("Answer before time runs out");
   const [playerColors, setPlayerColors] = useState({});
   const [myColor, setMyColor] = useState(null);
+  const [soundsReady, setSoundsReady] = useState(false);
 
   // New states for selection phase
   const [duplicateItemsWarning, setDuplicateItemsWarning] = useState(false);
@@ -83,7 +85,8 @@ export default function TrapGameScreen() {
   const handlersRegisteredRef = useRef(false);
   const selectionCompleteProcessedRef = useRef(false);
   const timerValueRef = useRef(turnTime);
-  const inputRef = useRef(null); // ADD THIS REF
+  const inputRef = useRef(null);
+  const selectionPhaseTimeoutRef = useRef(null);
 
   const socket = getSocket();
   currentTurnRef.current = currentTurnPlayer.id;
@@ -98,6 +101,27 @@ export default function TrapGameScreen() {
     !selectionModalVisible && 
     !countdownModalVisible && 
     !eliminatedPlayers.has(playerId);
+
+  // Initialize sound service
+  useEffect(() => {
+    const initializeSounds = async () => {
+      try {
+        await soundService.loadSounds();
+        setSoundsReady(true);
+        console.log('🔊 Sounds initialized successfully for trap game');
+      } catch (error) {
+        console.error('🔇 Failed to initialize sounds:', error);
+        setSoundsReady(false);
+      }
+    };
+
+    initializeSounds();
+
+    // Cleanup sounds on unmount
+    return () => {
+      soundService.unloadSounds();
+    };
+  }, []);
 
   // Use the custom hook for focus management
   useTurnBasedFocus(isMyTurn, gameOver, inputRef, "trap");
@@ -212,29 +236,20 @@ export default function TrapGameScreen() {
     if (duplicateItemsWarning) setDuplicateItemsWarning(false);
   };
 
-  // Socket listeners for Trap mode
+  // Socket listeners for Trap mode - FIXED VERSION
   useEffect(() => {
     console.log(`🎮 Joining Trap game - Lobby: ${lobbyId}, Player: ${playerId}`);
     
     socket.emit("joinHideSeekGame", { lobbyId, playerId, playerName: params.playerName });
 
-    // Prevent duplicate event handlers
-    if (handlersRegisteredRef.current) {
-      console.log("🔄 Event handlers already registered, skipping...");
-      return;
-    }
-    
-    handlersRegisteredRef.current = true;
-
     // Use a debounce mechanism for selectionPhase to prevent spam
-    let selectionPhaseTimeout = null;
     const handleSelectionPhase = ({ playersSelections, hasDuplicateItems = false }) => {
       // Debounce rapid selectionPhase events
-      if (selectionPhaseTimeout) {
-        clearTimeout(selectionPhaseTimeout);
+      if (selectionPhaseTimeoutRef.current) {
+        clearTimeout(selectionPhaseTimeoutRef.current);
       }
       
-      selectionPhaseTimeout = setTimeout(() => {
+      selectionPhaseTimeoutRef.current = setTimeout(() => {
         console.log("🎯 Selection phase update:", playersSelections);
         console.log("🔍 Has duplicate items:", hasDuplicateItems);
         
@@ -314,8 +329,30 @@ export default function TrapGameScreen() {
       setDuplicateItemsWarning(false);
     };
 
-    const handleItemSolved = ({ itemId, solvedBy, isHideSeekItem, trapSprung }) => {
+    const handleItemSolved = async ({ itemId, solvedBy, isHideSeekItem, trapSprung }) => {
       console.log(`✅ Item ${itemId} solved by player ${solvedBy}, isHideSeek: ${isHideSeekItem}, trapSprung: ${trapSprung}`);
+      
+      // Play appropriate sound based on the type of item solved
+      if (soundsReady) {
+        if (trapSprung) {
+          console.log('🔊 Playing trap-triggered sound (trap item triggered)');
+          await soundService.playSound('trap-triggered');
+        } else if (isHideSeekItem) {
+          // This shouldn't happen in trap mode, but just in case
+          console.log('🔊 Playing trap-triggered sound (trap item found)');
+          await soundService.playSound('trap-triggered');
+        } else {
+          if (Number(solvedBy) === Number(playerId)) {
+            console.log('🔊 Playing item-solved sound (my solve)');
+            await soundService.playSound('item-solved');
+          } else {
+            console.log('🔊 Playing opponent-solved sound (opponent solve)');
+            await soundService.playSound('opponent-solved');
+          }
+        }
+      } else {
+        console.log('🔇 Sounds not ready, cannot play sound');
+      }
       
       // Update the item as solved in the local state
       setItems((prev) => {
@@ -337,7 +374,7 @@ export default function TrapGameScreen() {
       }
     };
 
-    const handleTurnChanged = ({ currentTurnId, currentTurnName, timeLeft, players }) => {
+    const handleTurnChanged = async ({ currentTurnId, currentTurnName, timeLeft, players }) => {
       console.log(`🔄 Turn changed to player ${currentTurnId} (${currentTurnName})`);
       
       if (players && Array.isArray(players)) {
@@ -351,8 +388,11 @@ export default function TrapGameScreen() {
         setPlayerColors(colorMap);
       }
       
+      const newTurnPlayerId = Number(currentTurnId);
+      const isNowMyTurn = newTurnPlayerId === playerId;
+      
       setCurrentTurnPlayer({
-        id: Number(currentTurnId),
+        id: newTurnPlayerId,
         name: currentTurnName,
       });
       setInput("");
@@ -362,6 +402,15 @@ export default function TrapGameScreen() {
       setTimer(timeLeft || turnTime);
       
       clearTimer();
+      
+      // Play turn change sound
+      if (soundsReady) {
+        if (isNowMyTurn) {
+          console.log('🔊 Playing your-turn sound (my turn started)');
+          await soundService.playSound('your-turn');
+        }
+        // No sound for opponent's turn
+      }
       
       // Start timer for the new turn
       if (!selectionModalVisible && !countdownModalVisible) {
@@ -386,7 +435,9 @@ export default function TrapGameScreen() {
       setEliminatedPlayers(prev => new Set([...prev, eliminatedPlayerId]));
     };
 
-    // Register all event listeners
+    // Register all event listeners - ONLY ONCE
+    console.log('🎯 Setting up socket listeners for trap game');
+    
     socket.on("selectionPhase", handleSelectionPhase);
     socket.on("selectionCountdown", handleSelectionCountdown);
     socket.on("selectionComplete", handleSelectionComplete);
@@ -396,28 +447,35 @@ export default function TrapGameScreen() {
     socket.on("gameOver", handleGameOver);
     socket.on("playerEliminated", handlePlayerEliminated);
 
+    handlersRegisteredRef.current = true;
+
     return () => {
       console.log("🧹 Cleaning up game listeners");
-      handlersRegisteredRef.current = false;
-      selectionCompleteProcessedRef.current = false;
-      if (selectionPhaseTimeout) {
-        clearTimeout(selectionPhaseTimeout);
+      
+      // Clear timeouts
+      if (selectionPhaseTimeoutRef.current) {
+        clearTimeout(selectionPhaseTimeoutRef.current);
       }
       
-      // Remove specific listeners to prevent duplicates
-      socket.off("selectionPhase", handleSelectionPhase);
-      socket.off("selectionCountdown", handleSelectionCountdown);
-      socket.off("selectionComplete", handleSelectionComplete);
-      socket.off("selectionFailed", handleSelectionFailed);
-      socket.off("itemSolved", handleItemSolved);
-      socket.off("turnChanged", handleTurnChanged);
-      socket.off("gameOver", handleGameOver);
-      socket.off("playerEliminated", handlePlayerEliminated);
+      // Only remove listeners if we're actually leaving the game
+      if (hasLeftRef.current || gameOver) {
+        console.log("🔌 Removing socket listeners");
+        socket.off("selectionPhase", handleSelectionPhase);
+        socket.off("selectionCountdown", handleSelectionCountdown);
+        socket.off("selectionComplete", handleSelectionComplete);
+        socket.off("selectionFailed", handleSelectionFailed);
+        socket.off("itemSolved", handleItemSolved);
+        socket.off("turnChanged", handleTurnChanged);
+        socket.off("gameOver", handleGameOver);
+        socket.off("playerEliminated", handlePlayerEliminated);
+        
+        handlersRegisteredRef.current = false;
+        selectionCompleteProcessedRef.current = false;
+      }
       
-      removeGameListeners();
       clearTimer();
     };
-  }, [lobbyId, playerId, selectionModalVisible, countdownModalVisible]);
+  }, [lobbyId, playerId, soundsReady]); // Removed problematic dependencies
 
   // Add cleanup effect to prevent multiple mounts
   useEffect(() => {
@@ -425,6 +483,8 @@ export default function TrapGameScreen() {
       console.log("🔄 TrapGameScreen unmounting - cleaning up everything");
       hasLeftRef.current = true;
       clearTimer();
+      
+      // Only call removeGameListeners if we're actually leaving
       removeGameListeners();
     };
   }, []);
@@ -609,7 +669,7 @@ export default function TrapGameScreen() {
           gameOver={gameOver}
           input={input}
           onInputChange={handleInputChange}
-          inputRef={inputRef} // PASS THE REF
+          inputRef={inputRef}
           myColor={myColor}
           eliminatedPlayers={eliminatedPlayers}
           selectionModalVisible={selectionModalVisible}

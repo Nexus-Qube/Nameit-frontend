@@ -11,9 +11,10 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { getSocket, removeGameListeners } from "../services/socket";
 import { useGameData } from "../hooks/useGameData";
 import { useGameLogic } from "../hooks/useGameLogic";
-import { useTurnBasedFocus } from "../hooks/useTurnBasedFocus"; // ADD THIS IMPORT
+import { useTurnBasedFocus } from "../hooks/useTurnBasedFocus";
 import { scrollToItem } from "../helpers/scrollHelpers";
 import { getColorById } from "../constants/PlayerColors";
+import soundService from "../services/soundService";
 import styles from "../styles/GameScreenStyles";
 
 import GameHeader from "../components/GameHeader";
@@ -62,6 +63,7 @@ export default function ChallengeGameScreen() {
   const [statusMessage, setStatusMessage] = useState("Answer before time runs out");
   const [playerColors, setPlayerColors] = useState({});
   const [myColor, setMyColor] = useState(null);
+  const [soundsReady, setSoundsReady] = useState(false);
 
   const scrollRef = useRef(null);
   const itemRefs = useRef({});
@@ -79,6 +81,27 @@ export default function ChallengeGameScreen() {
 
   // Calculate if it's my turn
   const isMyTurn = currentTurnPlayer.id === playerId;
+
+  // Initialize sound service
+  useEffect(() => {
+    const initializeSounds = async () => {
+      try {
+        await soundService.loadSounds();
+        setSoundsReady(true);
+        console.log('🔊 Sounds initialized successfully for challenge game');
+      } catch (error) {
+        console.error('🔇 Failed to initialize sounds:', error);
+        setSoundsReady(false);
+      }
+    };
+
+    initializeSounds();
+
+    // Cleanup sounds on unmount
+    return () => {
+      soundService.unloadSounds();
+    };
+  }, []);
 
   // Use the custom hook for focus management
   useTurnBasedFocus(isMyTurn, gameOver, inputRef, "marathon");
@@ -140,8 +163,21 @@ export default function ChallengeGameScreen() {
       );
     };
 
-    const handleItemSolved = ({ itemId, solvedBy }) => {
-      console.log(`✅ Item ${itemId} solved by player ${solvedBy}`);
+    const handleItemSolved = async ({ itemId, solvedBy }) => {
+      console.log(`✅ Item ${itemId} solved by player ${solvedBy} (I am player ${playerId})`);
+      
+      // Play appropriate sound based on who solved the item
+      if (soundsReady) {
+        if (Number(solvedBy) === Number(playerId)) {
+          console.log('🔊 Playing item-solved sound (my solve confirmed by server)');
+          await soundService.playSound('item-solved');
+        } else {
+          console.log('🔊 Playing opponent-solved sound (opponent solve)');
+          await soundService.playSound('opponent-solved');
+        }
+      } else {
+        console.log('🔇 Sounds not ready, cannot play sound');
+      }
       
       // Update items state first, then scroll
       setItems((prev) => {
@@ -157,7 +193,7 @@ export default function ChallengeGameScreen() {
       });
     };
 
-    const handleTurnChanged = ({ currentTurnId, currentTurnName, timeLeft, players }) => {
+    const handleTurnChanged = async ({ currentTurnId, currentTurnName, timeLeft, players }) => {
       console.log(`🔄 Turn changed to player ${currentTurnId} (${currentTurnName})`);
       
       // Update player colors if provided
@@ -172,14 +208,26 @@ export default function ChallengeGameScreen() {
         setPlayerColors(colorMap);
       }
       
+      const newTurnPlayerId = Number(currentTurnId);
+      const isNowMyTurn = newTurnPlayerId === playerId;
+      
       setCurrentTurnPlayer({
-        id: Number(currentTurnId),
+        id: newTurnPlayerId,
         name: currentTurnName,
       });
       setInput("");
       setTimer(timeLeft || turnTime);
       clearTimer();
       startTimer();
+
+      // Play turn change sound
+      if (soundsReady) {
+        if (isNowMyTurn) {
+          console.log('🔊 Playing your-turn sound (my turn started)');
+          await soundService.playSound('your-turn');
+        }
+        // No sound for opponent's turn
+      }
     };
 
     const handleGameOver = ({ winner }) => {
@@ -208,18 +256,21 @@ export default function ChallengeGameScreen() {
       removeGameListeners();
       clearTimer();
     };
-  }, [lobbyId, playerId]);
+  }, [lobbyId, playerId, soundsReady]);
 
-  // Handle input
+  // Handle input - NO SOUND HERE, only when server confirms
   const handleInputChange = (text) => {
     setInput(text);
     
     const matched = handleItemMatch(text, currentTurnPlayer.id, playerId, gameOver);
     
     if (matched) {
-      console.log(`🎯 Matched item: ${matched.name}`);
+      console.log(`🎯 Matched item: ${matched.name} - sending to server`);
       setInput("");
       incrementPlayerSolvedCount();
+      
+      // NO SOUND PLAYED HERE - wait for server confirmation
+      
       socket.emit("buttonPress", {
         lobbyId,
         playerId,

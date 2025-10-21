@@ -18,6 +18,7 @@ import styles from "../styles/GameScreenStyles";
 import GameHeader from "../components/GameHeader";
 import GameGrid from "../components/GameGrid";
 import GameModals from "../components/GameModals";
+import soundService from "../services/soundService";
 
 export default function GameScreen() {
   const { width } = Dimensions.get('window');
@@ -54,6 +55,20 @@ export default function GameScreen() {
   // Custom hooks
   const { spriteInfo, initialItems, isLoading, error } = useGameData(Number(topicId));
   const { items, setItems, playerSolvedCount, handleItemMatch, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
+
+  // Initialize sound service on component mount
+  useEffect(() => {
+    const initializeSounds = async () => {
+      await soundService.loadSounds();
+    };
+
+    initializeSounds();
+
+    // Cleanup sounds on unmount
+    return () => {
+      soundService.unloadSounds();
+    };
+  }, []);
 
   // Initialize items when useGameData loads them
   useEffect(() => {
@@ -134,7 +149,7 @@ export default function GameScreen() {
   };
 
   // --- Handle input ---
-  const handleInputChange = (text) => {
+  const handleInputChange = async (text) => {
     setInput(text);
     
     const matched = handleItemMatch(text, 1, 1, gameOver);
@@ -143,6 +158,9 @@ export default function GameScreen() {
       console.log(`🎯 Matched item: ${matched.name}`);
       
       incrementPlayerSolvedCount();
+
+      // Play item solved sound
+      await soundService.playSound('item-solved');
 
       // MANUALLY UPDATE ITEMS TO MARK AS SOLVED
       setItems(prev => prev.map(item => 
@@ -175,7 +193,7 @@ export default function GameScreen() {
     router.replace("/");
   };
 
-  const handleRestartGame = () => {
+  const handleRestartGame = async () => {
     clearTimer();
     setGameOver(false);
     setGameModalVisible(false);
