@@ -161,30 +161,34 @@ export default function TrapGameScreen() {
   };
 
   const startTimer = () => {
-    console.log("⏰ Starting timer, current turn:", currentTurnPlayer.id, "I am:", playerId);
-    clearTimer();
-    
-    // Reset timer value and state
-    timerValueRef.current = turnTime;
-    setTimer(turnTime);
-    
-    intervalRef.current = setInterval(() => {
-      timerValueRef.current = timerValueRef.current - 1;
+  console.log("⏰ Starting timer, current turn:", currentTurnPlayer.id, "I am:", playerId);
+  
+  // Clear any existing timer first
+  clearTimer();
+  
+  // Only start timer if it's our turn and game is not over
+  if (currentTurnPlayer.id !== playerId || gameOver) {
+    console.log("⏰ Not starting timer - not my turn or game over");
+    return;
+  }
+  
+  intervalRef.current = setInterval(() => {
+    setTimer(prev => {
+      const newTime = prev - 1;
+      console.log("⏰ Timer tick:", newTime);
       
-      // Update state with the new value - this should trigger UI update
-      setTimer(timerValueRef.current);
-      
-      console.log("⏰ Timer tick:", timerValueRef.current);
-      
-      if (timerValueRef.current <= 0) {
+      if (newTime <= 0) {
         if (!hasLeftRef.current && currentTurnRef.current === playerId && !gameOver) {
           console.log("⏰ Timer expired - auto elimination");
           handlePlayerElimination(playerId, "timeout");
         }
         clearTimer();
+        return 0;
       }
-    }, 1000);
-  };
+      return newTime;
+    });
+  }, 1000);
+};
 
   // Trap mode specific functions
   const validateTrapItem = (itemName) => {
@@ -296,48 +300,48 @@ export default function TrapGameScreen() {
     };
 
     const handleSelectionComplete = ({ playerItems, firstTurnPlayerId, firstTurnPlayerName }) => {
-      // Check if already processed
-      if (selectionCompleteProcessedRef.current) {
-        console.log("🔄 Selection complete already processed, skipping...");
-        return;
-      }
-      selectionCompleteProcessedRef.current = true;
-      
-      console.log("✅ Selection phase complete, starting game");
-      console.log("📦 Received playerItems:", playerItems);
-      
-      // Convert player ID to string for lookup
-      const playerIdStr = String(playerId);
-      const myItem = playerItems[playerIdStr];
-      
-      setMyTrapItem(myItem);
-      setDuplicateItemsWarning(false);
-      
-      // Update current turn player if provided by server
-      if (firstTurnPlayerId && firstTurnPlayerName) {
-        setCurrentTurnPlayer({
-          id: Number(firstTurnPlayerId),
-          name: firstTurnPlayerName,
-        });
-        currentTurnRef.current = Number(firstTurnPlayerId);
-        console.log(`🔄 Updated current turn to player ${firstTurnPlayerId}`);
-      }
-      
-      // Close both modals and start the game
-      setSelectionModalVisible(false);
-      setCountdownModalVisible(false);
-      setStatusMessage("Answer before time runs out");
-      
-      console.log("🎮 Trap game starting now!");
-      
-      // Start the timer immediately for the first player
-      setTimeout(() => {
-        if (currentTurnRef.current === playerId) {
-          console.log("⏰ I am the first player, starting my timer");
-          startTimer();
-        }
-      }, 500);
-    };
+  // Check if already processed
+  if (selectionCompleteProcessedRef.current) {
+    console.log("🔄 Selection complete already processed, skipping...");
+    return;
+  }
+  selectionCompleteProcessedRef.current = true;
+  
+  console.log("✅ Selection phase complete, starting game");
+  console.log("📦 Received playerItems:", playerItems);
+  
+  // Convert player ID to string for lookup
+  const playerIdStr = String(playerId);
+  const myItem = playerItems[playerIdStr];
+  
+  setMyTrapItem(myItem);
+  setDuplicateItemsWarning(false);
+  
+  // Update current turn player if provided by server
+  if (firstTurnPlayerId && firstTurnPlayerName) {
+    setCurrentTurnPlayer({
+      id: Number(firstTurnPlayerId),
+      name: firstTurnPlayerName,
+    });
+    currentTurnRef.current = Number(firstTurnPlayerId);
+    console.log(`🔄 Updated current turn to player ${firstTurnPlayerId}`);
+  }
+  
+  // Close both modals and start the game
+  setSelectionModalVisible(false);
+  setCountdownModalVisible(false);
+  setStatusMessage("Answer before time runs out");
+  
+  console.log("🎮 Trap game starting now!");
+  
+  // CRITICAL: Start the timer for the first player with proper timing
+  setTimeout(() => {
+    if (currentTurnRef.current === playerId && !gameOver) {
+      console.log("⏰ I am the first player, starting my timer");
+      startTimer();
+    }
+  }, 500);
+};
 
     const handleSelectionFailed = ({ reason }) => {
       Alert.alert("Selection Failed", reason);
@@ -393,48 +397,54 @@ export default function TrapGameScreen() {
     };
 
     const handleTurnChanged = async ({ currentTurnId, currentTurnName, timeLeft, players }) => {
-      console.log(`🔄 Turn changed to player ${currentTurnId} (${currentTurnName})`);
-      
-      if (players && Array.isArray(players)) {
-        const colorMap = {};
-        players.forEach(player => {
-          colorMap[player.id] = player.color;
-          if (String(player.id) === String(playerId)) {
-            setMyColor(player.color);
-          }
-        });
-        setPlayerColors(colorMap);
+  console.log(`🔄 Turn changed to player ${currentTurnId} (${currentTurnName})`);
+  
+  if (players && Array.isArray(players)) {
+    const colorMap = {};
+    players.forEach(player => {
+      colorMap[player.id] = player.color;
+      if (String(player.id) === String(playerId)) {
+        setMyColor(player.color);
       }
-      
-      const newTurnPlayerId = Number(currentTurnId);
-      const isNowMyTurn = newTurnPlayerId === playerId;
-      
-      setCurrentTurnPlayer({
-        id: newTurnPlayerId,
-        name: currentTurnName,
-      });
-      setInput("");
-      
-      // Update both the ref and state for timer
-      timerValueRef.current = timeLeft || turnTime;
-      setTimer(timeLeft || turnTime);
-      
-      clearTimer();
-      
-      // Play turn change sound
-      if (soundsReady) {
-        if (isNowMyTurn) {
-          console.log('🔊 Playing your-turn sound (my turn started)');
-          await soundService.playSound('your-turn');
-        }
-        // No sound for opponent's turn
-      }
-      
-      // Start timer for the new turn
-      if (!selectionModalVisible && !countdownModalVisible) {
-        startTimer();
-      }
-    };
+    });
+    setPlayerColors(colorMap);
+  }
+  
+  const newTurnPlayerId = Number(currentTurnId);
+  const isNowMyTurn = newTurnPlayerId === playerId;
+  
+  setCurrentTurnPlayer({
+    id: newTurnPlayerId,
+    name: currentTurnName,
+  });
+  setInput("");
+  
+  // Use the timeLeft from server or reset to turnTime
+  const newTimerValue = timeLeft !== undefined ? timeLeft : turnTime;
+  setTimer(newTimerValue);
+  
+  // Clear any existing timer first
+  clearTimer();
+  
+  // Play turn change sound
+  if (soundsReady) {
+    if (isNowMyTurn) {
+      console.log('🔊 Playing your-turn sound (my turn started)');
+      await soundService.playSound('your-turn');
+    }
+  }
+  
+  // CRITICAL FIX: Always start timer for the current turn player
+  // Don't check for selectionModalVisible or countdownModalVisible here
+  // because by the time turnChanged is called, those should be closed
+  if (isNowMyTurn && !gameOver) {
+    console.log(`⏰ Starting timer for player ${playerId}, time: ${newTimerValue}`);
+    // Use setTimeout to ensure state updates have completed
+    setTimeout(() => {
+      startTimer();
+    }, 100);
+  }
+};
 
     const handleGameOver = ({ winner }) => {
       console.log(`🏁 Game over! Winner: ${winner.name}`);
@@ -507,6 +517,29 @@ export default function TrapGameScreen() {
     };
   }, []);
 
+  useEffect(() => {
+  if (isMyTurn && inputRef.current && !gameOver) {
+    // Aggressive focus protection for the current turn
+    const focusInterval = setInterval(() => {
+      if (inputRef.current && Platform.OS === 'web' && document.activeElement !== inputRef.current) {
+        console.log('⌨️ Aggressive focus protection');
+        inputRef.current.focus();
+      }
+    }, 500);
+    
+    return () => clearInterval(focusInterval);
+  }
+}, [isMyTurn, gameOver]);
+
+// Add this useEffect to debug timer issues
+useEffect(() => {
+  console.log(`⏰ Timer state updated: ${timer}s, isMyTurn: ${isMyTurn}, gameOver: ${gameOver}`);
+}, [timer, isMyTurn, gameOver]);
+
+useEffect(() => {
+  console.log(`🔄 Turn state updated: currentTurn=${currentTurnPlayer.id}, isMyTurn=${isMyTurn}`);
+}, [currentTurnPlayer.id, isMyTurn]);
+
   // Handle input during gameplay phase
   const handleInputChange = (text) => {
     if (selectionModalVisible || countdownModalVisible || eliminatedPlayers.has(playerId)) return;
@@ -558,7 +591,7 @@ export default function TrapGameScreen() {
       });
 
       setTimeout(() => {
-        scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth);
+        scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth, inputRef);
       }, 100);
     }
   };

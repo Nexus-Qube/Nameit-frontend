@@ -508,6 +508,20 @@ export default function HideAndSeekGameScreen() {
     };
   }, []);
 
+  useEffect(() => {
+  if (isMyTurn && inputRef.current && !gameOver) {
+    // Aggressive focus protection for the current turn
+    const focusInterval = setInterval(() => {
+      if (inputRef.current && Platform.OS === 'web' && document.activeElement !== inputRef.current) {
+        console.log('⌨️ Aggressive focus protection');
+        inputRef.current.focus();
+      }
+    }, 500);
+    
+    return () => clearInterval(focusInterval);
+  }
+}, [isMyTurn, gameOver]);
+
   // Handle input during gameplay phase
   const handleInputChange = (text) => {
     if (selectionModalVisible || countdownModalVisible || eliminatedPlayers.has(playerId)) return;
@@ -559,7 +573,7 @@ export default function HideAndSeekGameScreen() {
       });
 
       setTimeout(() => {
-        scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth);
+        scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth, inputRef);
       }, 100);
     }
   };

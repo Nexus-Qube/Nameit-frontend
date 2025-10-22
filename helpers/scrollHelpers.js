@@ -1,13 +1,18 @@
 // helpers/scrollHelpers.js
 import { Platform, Dimensions } from "react-native";
 
-export const scrollToItem = (itemRefs, scrollRef, itemId, allItems = [], itemsPerRow, itemWidth) => {
+export const scrollToItem = (itemRefs, scrollRef, itemId, allItems = [], itemsPerRow, itemWidth, inputRef = null) => {
   console.log(`🎯 Scroll called for item: ${itemId}`);
   
   if (!scrollRef.current) {
     console.log('❌ Scroll ref not available');
     return;
   }
+
+  // Store current focus state
+  const wasFocused = inputRef?.current && Platform.OS === 'web' 
+    ? document.activeElement === inputRef.current 
+    : false;
 
   setTimeout(() => {
     try {
@@ -31,7 +36,6 @@ export const scrollToItem = (itemRefs, scrollRef, itemId, allItems = [], itemsPe
       
       console.log(`📊 Scroll - RowHeight: ${rowHeight}, ItemIndex: ${itemIndex}, Row: ${rowIndex}, ScrollY: ${finalScrollY}`);
       
-      // Clean smooth scrolling
       scrollRef.current.scrollTo({
         y: finalScrollY,
         animated: true,
@@ -40,14 +44,24 @@ export const scrollToItem = (itemRefs, scrollRef, itemId, allItems = [], itemsPe
       
       console.log(`⌨️ Scroll started with animation`);
       
+      // Restore focus after scroll animation completes
+      if (wasFocused && inputRef?.current) {
+        setTimeout(() => {
+          if (inputRef.current) {
+            console.log('⌨️ Restoring focus after scroll');
+            inputRef.current.focus();
+          }
+        }, 400); // Wait for scroll animation to complete
+      }
+      
     } catch (error) {
       console.log('Index scroll error:', error);
-      useMeasurementFallback(itemRefs, scrollRef, itemId);
+      useMeasurementFallback(itemRefs, scrollRef, itemId, inputRef, wasFocused);
     }
   }, 100);
 };
 
-const useMeasurementFallback = (itemRefs, scrollRef, itemId) => {
+const useMeasurementFallback = (itemRefs, scrollRef, itemId, inputRef = null, wasFocused = false) => {
   const itemRef = itemRefs.current[itemId];
   
   if (!itemRef || !scrollRef.current) return;
@@ -61,6 +75,15 @@ const useMeasurementFallback = (itemRefs, scrollRef, itemId) => {
         animated: true, 
         duration: 200 
       });
+      
+      // Restore focus
+      if (wasFocused && inputRef?.current) {
+        setTimeout(() => {
+          if (inputRef.current) {
+            inputRef.current.focus();
+          }
+        }, 400);
+      }
     });
   } else {
     itemRef.measureLayout(
@@ -73,6 +96,15 @@ const useMeasurementFallback = (itemRefs, scrollRef, itemId) => {
           animated: true, 
           duration: 200 
         });
+        
+        // Restore focus
+        if (wasFocused && inputRef?.current) {
+          setTimeout(() => {
+            if (inputRef.current) {
+              inputRef.current.focus();
+            }
+          }, 400);
+        }
       },
       (error) => {
         console.log('Measurement fallback failed:', error);

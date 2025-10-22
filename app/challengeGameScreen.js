@@ -276,6 +276,32 @@ export default function ChallengeGameScreen() {
     };
   }, [lobbyId, playerId, soundsReady]);
 
+  useEffect(() => {
+
+  if (isMyTurn && inputRef.current && !gameOver) {
+
+    // Aggressive focus protection for the current turn
+
+    const focusInterval = setInterval(() => {
+
+      if (inputRef.current && Platform.OS === 'web' && document.activeElement !== inputRef.current) {
+
+        console.log('⌨️ Aggressive focus protection');
+
+        inputRef.current.focus();
+
+      }
+
+    }, 500);
+
+    
+
+    return () => clearInterval(focusInterval);
+
+  }
+
+}, [isMyTurn, gameOver]);
+
   // Handle input - NO SOUND HERE, only when server confirms
   const handleInputChange = (text) => {
     setInput(text);
@@ -298,7 +324,7 @@ export default function ChallengeGameScreen() {
 
       // Scroll to the solved item - WITHOUT aggressive refocus
       setTimeout(() => {
-        scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth);
+        scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth, inputRef);
       }, 100);
     }
   };

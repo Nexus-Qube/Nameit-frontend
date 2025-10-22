@@ -22,16 +22,19 @@ export const useTurnBasedFocus = (isMyTurn, gameOver, inputRef, gameMode = "unkn
       console.log(`🎮 [${gameMode}] It's my turn - focusing input`);
       
       const focusInput = () => {
-        if (inputRef.current && document.activeElement !== inputRef.current) {
-          inputRef.current.focus();
-          hasFocusedThisTurn.current = true;
+        if (inputRef.current) {
+          try {
+            // Simple focus - let React Native handle platform differences
+            inputRef.current.focus();
+            hasFocusedThisTurn.current = true;
+          } catch (error) {
+            console.warn('Focus error:', error);
+          }
         }
       };
       
-      // Immediate focus
+      // Multiple focus attempts
       focusInput();
-      
-      // Additional focus attempts to ensure it sticks
       setTimeout(focusInput, 10);
       setTimeout(focusInput, 50);
       setTimeout(focusInput, 100);
