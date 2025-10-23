@@ -1,18 +1,30 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import {
   View,
+  Text,
+  TextInput,
+  ScrollView,
+  Image,
+  Modal,
+  TouchableOpacity,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useGameData } from "../hooks/useGameData";
-import { useGameLogic } from "../hooks/useGameLogic";
+import { fetchTopicById, fetchItemsByTopic } from '../services/api';
+import { getSpriteSheetConfig } from "../config/spriteSheetConfigs";
+import { initializeGameItems } from "../helpers/gameLogicHelpers";
 import { scrollToItem } from "../helpers/scrollHelpers";
+import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelpers";
+import { useGameLogic } from "../hooks/useGameLogic";
 import styles from "../styles/GameScreenStyles";
 
-import GameHeader from "../components/GameHeader";
-import GameGrid from "../components/GameGrid";
 import GameModals from "../components/GameModals";
 import soundService from "../services/soundService";
+
+const solvedBorder = require("../assets/images/solved_border_default.png");
+const itemUnsolved = require("../assets/images/item_unsolved.png");
 
 export default function GameScreen() {
   const { width } = Dimensions.get('window');
@@ -22,19 +34,29 @@ export default function GameScreen() {
   // Use useMemo for layout calculations to prevent re-renders
   const { itemWidth, calculatedItemsPerRow } = useMemo(() => {
     const minItemsPerRow = 3;
-    const maxItemWidth = 120;
-    const containerPadding = 40;
-    const itemMargin = 8;
+    const maxItemWidth = 120; // Locked max width
+    const containerPadding = 40; // 20px on each side
+    const itemMargin = 8; // Total horizontal margin per item (4px on each side)
 
+    // First, calculate how many items would fit if we use maxItemWidth
     const maxPossibleItems = Math.floor((width - containerPadding) / (maxItemWidth + itemMargin));
+
+    // Use at least minItemsPerRow, but more if screen is wide enough
     const calculatedItemsPerRow = Math.max(minItemsPerRow, maxPossibleItems);
+
+    // Calculate the available width for items (total width minus padding and margins)
     const availableWidth = width - containerPadding - (calculatedItemsPerRow * itemMargin);
-    const itemWidth = Math.min(maxItemWidth, Math.floor(availableWidth / calculatedItemsPerRow));
+
+    // Calculate item width, but don't exceed maxItemWidth
+    const itemWidth = Math.min(
+      maxItemWidth,
+      Math.floor(availableWidth / calculatedItemsPerRow)
+    );
 
     console.log('Screen width:', width, 'Items per row:', calculatedItemsPerRow, 'Item width:', itemWidth);
     
     return { itemWidth, calculatedItemsPerRow };
-  }, [width]);
+  }, [width]); // Only recalculate when width changes
 
   const [input, setInput] = useState("");
   const [time, setTime] = useState(mode === "countdown" ? 60 : 0);
@@ -42,27 +64,32 @@ export default function GameScreen() {
   const [gameModalVisible, setGameModalVisible] = useState(false);
   const [soundsReady, setSoundsReady] = useState(false);
 
+  const [spriteInfo, setSpriteInfo] = useState({
+  spriteSize: 0,        // Will be set from API (always available)
+  margin: 1,            // Hardcoded since it's always 1
+  spritesPerRow: 0,     // Will be set from API (always available)
+  sheetWidth: 0,        // Will be set from sprite config
+  sheetHeight: 0,       // Will be set from sprite config
+  sheetUrl: null,       // Will be set from sprite config
+  noSpriteSheet: false, // Will be set from sprite config
+});
+
   const scrollRef = useRef(null);
   const itemRefs = useRef({});
   const intervalRef = useRef(null);
   const inputRef = useRef(null);
-  const isProcessingRef = useRef(false);
-  const focusLockRef = useRef(false);
-  const pendingInputRef = useRef(""); // NEW: Buffer for characters typed during processing
-  const lastMatchedTextRef = useRef(""); // NEW: Track what we matched
 
   // Custom hooks
-  const { spriteInfo, initialItems, isLoading, error } = useGameData(Number(topicId));
   const { items, setItems, playerSolvedCount, handleItemMatch, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
 
   // Initialize sound service on component mount
   useEffect(() => {
     let mounted = true;
-
     const initializeSounds = async () => {
       try {
         console.log('🎮 Starting sound initialization for single player game...');
         
+        // Wait for sounds to load with timeout
         const loadPromise = soundService.loadSounds();
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Sound loading timeout')), 10000)
@@ -79,68 +106,26 @@ export default function GameScreen() {
         if (mounted) {
           setSoundsReady(false);
         }
+        // Game continues without sounds
       }
     };
 
+    // Don't block game start on sound loading
     initializeSounds();
 
     return () => {
       mounted = false;
+      // Don't unload sounds immediately as they might be needed by other components
+      // soundService.unloadSounds();
     };
   }, []);
 
-  // Initialize items when useGameData loads them
-  useEffect(() => {
-    if (initialItems.length > 0) {
-      console.log(`📦 Setting ${initialItems.length} initial items in useGameLogic`);
-      setItems(initialItems);
-    }
-  }, [initialItems, setItems]);
-
-  // PERMANENT FOCUS LOCK
-  useEffect(() => {
-    if (!gameOver && inputRef.current) {
-      console.log('⌨️ Setting up permanent focus lock');
-      
-      // Immediate focus
-      inputRef.current.focus();
-      
-      // Set up permanent focus protection
-      const protectFocus = () => {
-        if (inputRef.current && document.activeElement !== inputRef.current && !gameOver) {
-          console.log('⌨️ Focus protection: restoring focus');
-          inputRef.current.focus();
-        }
-      };
-
-      // Aggressive focus protection
-      const focusInterval = setInterval(protectFocus, 100);
-      
-      // Also protect on any user interaction
-      const events = ['click', 'touchstart', 'keydown', 'mousedown'];
-      const protectOnInteraction = () => {
-        setTimeout(protectFocus, 10);
-      };
-      
-      events.forEach(event => {
-        document.addEventListener(event, protectOnInteraction, true);
-      });
-
-      return () => {
-        clearInterval(focusInterval);
-        events.forEach(event => {
-          document.removeEventListener(event, protectOnInteraction, true);
-        });
-      };
-    }
-  }, [gameOver]);
-
   // --- Timer functions ---
-  const clearTimer = useCallback(() => {
+  const clearTimer = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
-  }, []);
+  };
 
-  const startTimer = useCallback(() => {
+  const startTimer = () => {
     clearTimer();
     
     if (mode === "countdown") {
@@ -160,13 +145,53 @@ export default function GameScreen() {
         setTime((prev) => prev + 1);
       }, 1000);
     }
-  }, [mode, clearTimer]);
+  };
+
+  // --- Fetch topic + items using API ---
+  useEffect(() => {
+    const topicNum = Number(topicId);
+    if (!topicNum) return;
+
+    const fetchData = async () => {
+      try {
+        const topicData = await fetchTopicById(topicNum);
+        if (!topicData) return;
+
+        // Get sprite sheet configuration from JSON config
+        const spriteConfig = getSpriteSheetConfig(topicNum);
+
+        setSpriteInfo({
+  spriteSize: topicData.sprite_size,      // No fallback needed - API always provides
+  margin: 1,                              // Hardcoded
+  spritesPerRow: topicData.sprites_per_row, // No fallback needed - API always provides
+  sheetWidth: spriteConfig.width,
+  sheetHeight: spriteConfig.height,
+  sheetUrl: spriteConfig.src,
+  noSpriteSheet: spriteConfig.noSpriteSheet || false,
+});
+
+        const itemsData = await fetchItemsByTopic(topicNum);
+        const initializedItems = initializeGameItems(itemsData, topicData);
+        setItems(initializedItems);
+        
+        if (spriteConfig.noSpriteSheet) {
+          console.log(`ℹ️ No sprite sheet for topic ${topicNum}, using gray squares with checkmarks`);
+        } else {
+          console.log(`✅ Loaded sprite sheet for topic ${topicNum}: ${spriteConfig.fileName}`);
+        }
+      } catch (err) {
+        console.error("Error fetching topic/items:", err);
+      }
+    };
+
+    fetchData();
+  }, [topicId]);
 
   // Start timer on component mount
   useEffect(() => {
     startTimer();
     return () => clearTimer();
-  }, [startTimer, clearTimer]);
+  }, [mode]);
 
   // Check for game completion
   useEffect(() => {
@@ -175,25 +200,10 @@ export default function GameScreen() {
       setGameModalVisible(true);
       clearTimer();
     }
-  }, [solvedCount, items, mode, clearTimer]);
-
-  // Format time for display
-  const formatTime = useCallback((seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  }, []);
-
+  }, [solvedCount, items, mode]);
+ 
   // --- Handle input ---
-  const handleInputChange = useCallback(async (text) => {
-  // If we're processing a previous match, buffer the input
-  if (isProcessingRef.current) {
-    console.log(`⌨️ Buffering input during processing: "${text}"`);
-    pendingInputRef.current = text;
-    setInput(text); // Still show the text to user
-    return;
-  }
-  
+const handleInputChange = async (text) => {
   setInput(text);
   
   const matched = handleItemMatch(text, 1, 1, gameOver);
@@ -201,37 +211,17 @@ export default function GameScreen() {
   if (matched) {
     console.log(`🎯 Matched item: ${matched.name}`);
     
-    // CRITICAL FIX: Set processing flag IMMEDIATELY to catch rapid typing
-    isProcessingRef.current = true;
-    
-    // Store what we matched and capture any extra characters typed DURING this function call
-    lastMatchedTextRef.current = text;
-    
-    // Calculate what comes AFTER the matched text RIGHT NOW
-    const matchedLength = matched.name.length;
-    const extraText = text.length > matchedLength ? text.slice(matchedLength) : "";
-    
-    // If there are extra characters, store them BEFORE we start processing
-    if (extraText) {
-      console.log(`⌨️ Extra text detected immediately after match: "${extraText}"`);
-      pendingInputRef.current = extraText;
-    }
-    
-    // Lock focus during processing
-    focusLockRef.current = true;
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-
     incrementPlayerSolvedCount();
 
-    // Play item solved sound (non-blocking)
+    // Play item solved sound
     if (soundsReady) {
-      console.log('🔊 Playing item-solved sound');
-      soundService.playSound('item-solved').catch(console.error);
-    }
+        console.log('🔊 Playing item-solved sound');
+        await soundService.playSound('item-solved');
+      } else {
+        console.log('🔇 Sounds not ready, skipping sound');
+      }
 
-    // Update items state
+    // MANUALLY UPDATE ITEMS TO MARK AS SOLVED
     setItems(prev => prev.map(item => 
       item.id === matched.id ? { ...item, solved: true, solvedBy: 1 } : item
     ));
@@ -241,122 +231,221 @@ export default function GameScreen() {
       setTime(prev => prev + 5);
     }
 
-    // Clear the matched part but keep extra text visible
-    if (extraText) {
-  setInput(extraText);
-} else {
-  // Only clear if there's no extra text to show
-  setInput("");
-}
-
-    // Start scroll with smooth animation
+    // Scroll to the solved item
     setTimeout(() => {
       console.log(`⌨️ Starting scroll process`);
       scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth, inputRef);
-    }, 100);
+    }, 150);
 
-    // Reset processing flag and apply buffered input
+    // Clear input after a short delay, but maintain focus
     setTimeout(() => {
-      isProcessingRef.current = false;
-      focusLockRef.current = false;
+      console.log(`⌨️ Delayed input clear`);
+      setInput("");
       
-      // Apply any buffered input that came in during processing
-      if (pendingInputRef.current) {
-        console.log(`⌨️ Applying buffered input: "${pendingInputRef.current}"`);
-        const buffered = pendingInputRef.current;
-        pendingInputRef.current = "";
-        setInput(buffered);
-      }
-      
-      // Final focus assurance
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
-    }, 300);
+      // Force focus restoration after clear
+      setTimeout(() => {
+        if (inputRef.current) {
+          console.log(`⌨️ Restoring focus after delayed clear`);
+          inputRef.current.focus();
+        }
+      }, 10);
+    }, 50);
   }
-}, [gameOver, soundsReady, mode, calculatedItemsPerRow, itemWidth, items, handleItemMatch, incrementPlayerSolvedCount, setItems]);
+};
 
-  const handleExitGame = useCallback(() => {
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const handleExitGame = () => {
     clearTimer();
     setGameOver(false);
     setGameModalVisible(false);
     router.replace("/");
-  }, [clearTimer, router]);
+  };
 
-  const handleRestartGame = useCallback(async () => {
+  const handleRestartGame = async () => {
     clearTimer();
     setGameOver(false);
     setGameModalVisible(false);
     setTime(mode === "countdown" ? 60 : 0);
-    setInput("");
-    pendingInputRef.current = "";
-    lastMatchedTextRef.current = "";
+    setInput(""); // Reset input on restart
     setItems(prev => prev.map(item => ({ ...item, solved: false })));
     startTimer();
-    isProcessingRef.current = false;
-    focusLockRef.current = false;
-    
-    // Focus input after restart
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
-    }, 500);
-  }, [clearTimer, mode, startTimer, setItems]);
+  };
 
   const handleCloseGameModal = useCallback(() => {
     setGameModalVisible(false);
   }, []);
 
-  const formattedTime = mode === "countdown" ? `${time}s` : formatTime(time);
-
   return (
-    <View 
+    <KeyboardAvoidingView 
       style={{ flex: 1 }}
-      onStartShouldSetResponder={() => true}
-      onResponderGrant={() => {
-        // Prevent focus stealing when tapping on the game area
-        if (inputRef.current) {
-          inputRef.current.focus();
-        }
-      }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      {/* Game Header Component */}
-      <GameHeader
-        onExitGame={handleExitGame}
-        isSinglePlayer={true}
-        gameMode={mode}
-        formattedTime={formattedTime}
-        solvedCount={solvedCount}
-        items={items}
-        playerSolvedCount={playerSolvedCount}
-        gameOver={gameOver}
-        input={input}
-        onInputChange={handleInputChange}
-        inputRef={inputRef}
-      />
+      <View style={{ flex: 1, padding: 20 }}>
+        {/* Top Row */}
+        <View style={styles.topRow}>
+          <View style={styles.rowLeft}>
+            <TouchableOpacity onPress={handleExitGame}>
+              <Text style={{ color: "blue", fontSize: 16 }}>Exit Game</Text>
+            </TouchableOpacity>
+          </View>
 
-      {/* Game Grid Component */}
-      <GameGrid
-        items={items}
-        spriteInfo={spriteInfo}
-        itemWidth={itemWidth}
-        calculatedItemsPerRow={calculatedItemsPerRow}
-        scrollRef={scrollRef}
-        itemRefs={itemRefs}
-        gameOver={gameOver}
-        playerColors={{}}
-        gameMode={1}
-        isSinglePlayer={true}
-        onGridInteraction={() => {
-          // If user interacts with grid, refocus input
-          if (inputRef.current) {
-            inputRef.current.focus();
-          }
-        }}
-      />
+          <View style={styles.rowSection}>
+            <Text style={styles.counter}>
+              {solvedCount} / {items.length}
+            </Text>
+          </View>
 
-      {/* Game Modals Component */}
+          <View style={styles.rowRight}>
+            <Text style={styles.countdown}>
+              {mode === "countdown" ? `${time}s` : formatTime(time)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Player Stats Row */}
+        <View style={styles.bottomRow}>
+          <View style={styles.rowSection}>
+            <Text style={styles.counter}>
+              You solved {playerSolvedCount}
+            </Text>
+          </View>
+        </View>
+
+        {/* Input Field */}
+        <TextInput
+          ref={inputRef}
+          placeholder="Type item name..."
+          value={input}
+          onChangeText={handleInputChange}
+          style={styles.input}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!gameOver}
+          onBlur={() => {
+            console.log('🛑 BLUR EVENT DETECTED - immediately refocusing');
+            if (!gameOver) {
+              // Immediate refocus with multiple attempts
+              const refocusAttempt = (attempt = 0) => {
+                if (attempt < 5 && inputRef.current) {
+                  setTimeout(() => {
+                    inputRef.current.focus();
+                    console.log(`🛑 Refocus attempt ${attempt + 1}`);
+                    if (document.activeElement !== inputRef.current) {
+                      refocusAttempt(attempt + 1);
+                    }
+                  }, attempt * 50);
+                }
+              };
+              refocusAttempt(0);
+            }
+          }}
+        />
+
+        {/* Game Grid */}
+        <ScrollView 
+          contentContainerStyle={styles.grid} 
+          ref={scrollRef}
+          showsVerticalScrollIndicator={true}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
+          // Add these props to prevent focus stealing
+          onScrollBeginDrag={(e) => {
+            console.log('🛑 Scroll began - preventing focus loss');
+            // Prevent focus loss when scroll starts
+            if (inputRef.current) {
+              inputRef.current.focus();
+            }
+          }}
+          onTouchStart={(e) => {
+            console.log('🛑 Touch started - maintaining focus');
+            // Prevent touch events from stealing focus
+            if (inputRef.current) {
+              inputRef.current.focus();
+            }
+          }}
+          // Web-specific focus prevention
+          {...(Platform.OS === 'web' && {
+            onMouseDown: (e) => {
+              console.log('🛑 Mouse down - maintaining focus');
+              // Prevent mouse events from stealing focus on web
+              if (inputRef.current) {
+                inputRef.current.focus();
+              }
+            }
+          })}
+        >
+          {items.map((item) => {
+            const { left, top } = getSpritePosition(item.order, spriteInfo);
+            const isSolvedOrGameOver = item.solved || gameOver;
+            
+            const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
+
+            return (
+              <View key={item.id} style={[styles.itemContainer, { width: itemWidth }]}>
+                <View style={styles.outerContainer}>
+                  <View 
+                    style={styles.imageContainer}
+                    ref={(ref) => (itemRefs.current[item.id] = ref)}
+                  >
+                    {/* Show unsolved background or solved content */}
+                    {!item.solved ? (
+                      <Image 
+                        source={itemUnsolved}
+                        style={styles.unsolvedBackground}
+                      />
+                    ) : spriteInfo.noSpriteSheet ? (
+                      // Show gray square with checkmark for topics without sprite sheets
+                      <View style={styles.graySquare}>
+                        <Text style={styles.checkmark}>✓</Text>
+                      </View>
+                    ) : (
+                      // Show actual sprite sheet for topics with sprite sheets
+                      <Image
+                        source={spriteInfo.sheetUrl}
+                        style={{
+                          width: spriteInfo.sheetWidth * scale,
+                          height: spriteInfo.sheetHeight * scale,
+                          transform: [
+                            { translateX: -left * scale },
+                            { translateY: -top * scale },
+                          ],
+                        }}
+                      />
+                    )}
+                  </View>
+                  
+                  {/* Border overlay - only for solved items */}
+                  {item.solved && (
+                    <Image 
+                      source={solvedBorder}
+                      style={styles.borderOverlay}
+                    />
+                  )}
+                </View>
+
+                {isSolvedOrGameOver && (
+                  <Text
+                    style={{
+                      color: item.solved ? "#fff" : "gray",
+                      textAlign: "center",
+                      marginTop: 4,
+                    }}
+                  >
+                    {item.name}
+                  </Text>
+                )}
+              </View>
+            );
+          })}
+        </ScrollView>
+
+        {/* Game Modals Component */}
       <GameModals
         gameModalVisible={gameModalVisible}
         onCloseGameModal={handleCloseGameModal}
@@ -368,6 +457,7 @@ export default function GameScreen() {
         onLeaveGame={handleExitGame}
         gameMode={1}
       />
-    </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }

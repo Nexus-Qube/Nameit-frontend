@@ -1,7 +1,12 @@
-// frontend/app/trapGameScreen.js
 import { useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
+  Text,
+  TextInput,
+  ScrollView,
+  Image,
+  Modal,
+  TouchableOpacity,
   Alert,
   Dimensions,
   KeyboardAvoidingView,
@@ -9,17 +14,44 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { getSocket, removeGameListeners } from "../services/socket";
-import { useGameData } from "../hooks/useGameData";
+import { fetchTopicById, fetchItemsByTopic } from "../services/api";
+import { getSpriteSheetConfig } from "../config/spriteSheetConfigs";
 import { useGameLogic } from "../hooks/useGameLogic";
-import { useTurnBasedFocus } from "../hooks/useTurnBasedFocus";
 import { scrollToItem } from "../helpers/scrollHelpers";
-import { getColorById } from "../constants/PlayerColors";
-import soundService from "../services/soundService";
+import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelpers";
+import { initializeGameItems } from "../helpers/gameLogicHelpers";
+import { PLAYER_COLORS, getColorById } from "../constants/PlayerColors";
 import styles from "../styles/GameScreenStyles";
 
-import GameHeader from "../components/GameHeader";
-import GameGrid from "../components/GameGrid";
 import GameModals from "../components/GameModals";
+
+const itemUnsolved = require("../assets/images/item_unsolved.png");
+// Import regular colored borders AND trap mode borders
+const COLORED_BORDERS = {
+  red: require("../assets/images/solved_border_red.png"),
+  orange: require("../assets/images/solved_border_orange.png"),
+  yellow: require("../assets/images/solved_border_yellow.png"),
+  green: require("../assets/images/solved_border_green.png"),
+  teal: require("../assets/images/solved_border_teal.png"),
+  blue: require("../assets/images/solved_border_blue.png"),
+  purple: require("../assets/images/solved_border_purple.png"),
+  pink: require("../assets/images/solved_border_pink.png"),
+  brown: require("../assets/images/solved_border_brown.png"),
+  gray: require("../assets/images/solved_border_gray.png"),
+};
+
+const TRAP_BORDERS = {
+  red: require("../assets/images/Hide&Seek/solved_border_red.png"),
+  orange: require("../assets/images/Hide&Seek/solved_border_orange.png"),
+  yellow: require("../assets/images/Hide&Seek/solved_border_yellow.png"),
+  green: require("../assets/images/Hide&Seek/solved_border_green.png"),
+  teal: require("../assets/images/Hide&Seek/solved_border_teal.png"),
+  blue: require("../assets/images/Hide&Seek/solved_border_blue.png"),
+  purple: require("../assets/images/Hide&Seek/solved_border_purple.png"),
+  pink: require("../assets/images/Hide&Seek/solved_border_pink.png"),
+  brown: require("../assets/images/Hide&Seek/solved_border_brown.png"),
+  gray: require("../assets/images/Hide&Seek/solved_border_gray.png"),
+};
 
 export default function TrapGameScreen() {
   const { width } = Dimensions.get('window');
@@ -57,6 +89,15 @@ export default function TrapGameScreen() {
   const [gameOver, setGameOver] = useState(false);
   const [winner, setWinner] = useState(null);
   const [input, setInput] = useState("");
+  const [spriteInfo, setSpriteInfo] = useState({
+    spriteSize: 0,
+    margin: 1,
+    spritesPerRow: 0,
+    sheetWidth: 0,
+    sheetHeight: 0,
+    sheetUrl: null,
+    noSpriteSheet: false,
+  });
   
   // Trap mode specific states
   const [selectionModalVisible, setSelectionModalVisible] = useState(true);
@@ -70,7 +111,6 @@ export default function TrapGameScreen() {
   const [statusMessage, setStatusMessage] = useState("Answer before time runs out");
   const [playerColors, setPlayerColors] = useState({});
   const [myColor, setMyColor] = useState(null);
-  const [soundsReady, setSoundsReady] = useState(false);
 
   // New states for selection phase
   const [duplicateItemsWarning, setDuplicateItemsWarning] = useState(false);
@@ -79,78 +119,20 @@ export default function TrapGameScreen() {
 
   const scrollRef = useRef(null);
   const itemRefs = useRef({});
+  const inputRef = useRef(null);
   const currentTurnRef = useRef(currentTurnPlayer.id);
   const intervalRef = useRef(null);
   const hasLeftRef = useRef(false);
   const handlersRegisteredRef = useRef(false);
   const selectionCompleteProcessedRef = useRef(false);
   const timerValueRef = useRef(turnTime);
-  const inputRef = useRef(null);
-  const selectionPhaseTimeoutRef = useRef(null);
+  const gameStartedRef = useRef(false);
 
   const socket = getSocket();
   currentTurnRef.current = currentTurnPlayer.id;
 
   // Custom hooks
-  const { spriteInfo, initialItems, isLoading, error } = useGameData(topicId);
   const { items, setItems, playerSolvedCount, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
-
-  // Calculate if it's my turn (considering selection phase and elimination)
-  const isMyTurn = 
-    currentTurnPlayer.id === playerId && 
-    !selectionModalVisible && 
-    !countdownModalVisible && 
-    !eliminatedPlayers.has(playerId);
-
-  // Initialize sound service - UPDATED VERSION
-  useEffect(() => {
-    let mounted = true;
-
-    const initializeSounds = async () => {
-      try {
-        console.log('🎮 Starting sound initialization for trap game...');
-        
-        // Wait for sounds to load with timeout
-        const loadPromise = soundService.loadSounds();
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Sound loading timeout')), 10000)
-        );
-        
-        await Promise.race([loadPromise, timeoutPromise]);
-        
-        if (mounted) {
-          setSoundsReady(true);
-          console.log('✅ Sounds ready for trap game');
-        }
-      } catch (error) {
-        console.error('❌ Sound initialization failed:', error);
-        if (mounted) {
-          setSoundsReady(false);
-        }
-        // Game continues without sounds
-      }
-    };
-
-    // Don't block game start on sound loading
-    initializeSounds();
-
-    return () => {
-      mounted = false;
-      // Don't unload sounds immediately as they might be needed by other components
-      // soundService.unloadSounds();
-    };
-  }, []);
-
-  // Use the custom hook for focus management
-  useTurnBasedFocus(isMyTurn, gameOver, inputRef, "trap");
-
-  // Initialize items when useGameData loads them
-  useEffect(() => {
-    if (initialItems.length > 0) {
-      console.log(`📦 Setting ${initialItems.length} initial items in useGameLogic`);
-      setItems(initialItems);
-    }
-  }, [initialItems, setItems]);
 
   // Timer functions
   const clearTimer = () => {
@@ -161,34 +143,67 @@ export default function TrapGameScreen() {
   };
 
   const startTimer = () => {
-  console.log("⏰ Starting timer, current turn:", currentTurnPlayer.id, "I am:", playerId);
-  
-  // Clear any existing timer first
-  clearTimer();
-  
-  // Only start timer if it's our turn and game is not over
-  if (currentTurnPlayer.id !== playerId || gameOver) {
-    console.log("⏰ Not starting timer - not my turn or game over");
-    return;
-  }
-  
-  intervalRef.current = setInterval(() => {
-    setTimer(prev => {
-      const newTime = prev - 1;
-      console.log("⏰ Timer tick:", newTime);
+    console.log("⏰ Starting timer, current turn:", currentTurnPlayer.id, "I am:", playerId);
+    clearTimer();
+    
+    // Reset timer value and state
+    timerValueRef.current = turnTime;
+    setTimer(turnTime);
+    
+    intervalRef.current = setInterval(() => {
+      timerValueRef.current = timerValueRef.current - 1;
       
-      if (newTime <= 0) {
+      // Update state with the new value - this should trigger UI update
+      setTimer(timerValueRef.current);
+      
+      console.log("⏰ Timer tick:", timerValueRef.current);
+      
+      if (timerValueRef.current <= 0) {
         if (!hasLeftRef.current && currentTurnRef.current === playerId && !gameOver) {
           console.log("⏰ Timer expired - auto elimination");
           handlePlayerElimination(playerId, "timeout");
         }
         clearTimer();
-        return 0;
       }
-      return newTime;
-    });
-  }, 1000);
-};
+    }, 1000);
+  };
+
+  // Function to focus the input
+  const focusInput = () => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  };
+
+  // Effect to auto-focus input when it becomes player's turn
+  useEffect(() => {
+    if (currentTurnPlayer.id === playerId && !gameOver && !eliminatedPlayers.has(playerId)) {
+      console.log("🔄 Auto-focus triggered - my turn started");
+      
+      // Small delay to ensure the turn change has completed
+      const focusTimer = setTimeout(() => {
+        focusInput();
+      }, 100);
+      
+      return () => clearTimeout(focusTimer);
+    }
+  }, [currentTurnPlayer.id, playerId, gameOver, eliminatedPlayers]);
+
+  // NEW: Simple effect to detect when game starts and focus input for first player
+  useEffect(() => {
+    // Game starts when selection modal closes and it's the first player's turn
+    if (!selectionModalVisible && !countdownModalVisible && !gameStartedRef.current) {
+      gameStartedRef.current = true;
+      console.log("🎮 Game started - checking if I'm first player");
+      
+      if (currentTurnPlayer.id === playerId) {
+        console.log("🎯 I am the first player - focusing input");
+        setTimeout(() => {
+          focusInput();
+        }, 300);
+      }
+    }
+  }, [selectionModalVisible, countdownModalVisible, currentTurnPlayer.id, playerId]);
 
   // Trap mode specific functions
   const validateTrapItem = (itemName) => {
@@ -212,7 +227,7 @@ export default function TrapGameScreen() {
       console.log(`🎯 Player ${playerId} selected trap item: ${matchedItem.name}`);
       setMyTrapItem(matchedItem);
       
-      socket.emit("selectHideSeekItem", {
+      socket.emit("selectHideSeekItem", { // Using same event as hide & seek
         lobbyId,
         playerId: String(playerId),
         itemId: matchedItem.id,
@@ -236,6 +251,37 @@ export default function TrapGameScreen() {
     });
   };
 
+  // Fetch topic + items
+  useEffect(() => {
+    if (!topicId) return;
+
+    const fetchData = async () => {
+      try {
+        const topicData = await fetchTopicById(topicId);
+        if (!topicData) return;
+
+        const spriteConfig = getSpriteSheetConfig(topicId);
+        setSpriteInfo({
+          spriteSize: topicData.sprite_size,
+          margin: 1,
+          spritesPerRow: topicData.sprites_per_row,
+          sheetWidth: spriteConfig.width,
+          sheetHeight: spriteConfig.height,
+          sheetUrl: spriteConfig.src,
+          noSpriteSheet: spriteConfig.noSpriteSheet || false,
+        });
+
+        const itemsData = await fetchItemsByTopic(topicId);
+        const initializedItems = initializeGameItems(itemsData, topicData);
+        setItems(initializedItems);
+      } catch (err) {
+        console.error("Error fetching topic/items:", err);
+      }
+    };
+
+    fetchData();
+  }, [topicId]);
+
   // Modal control functions
   const handleCloseSelectionModal = () => {
     // Only allow closing if no item is selected yet
@@ -258,20 +304,29 @@ export default function TrapGameScreen() {
     if (duplicateItemsWarning) setDuplicateItemsWarning(false);
   };
 
-  // Socket listeners for Trap mode - FIXED VERSION
+  // Socket listeners for Trap mode
   useEffect(() => {
     console.log(`🎮 Joining Trap game - Lobby: ${lobbyId}, Player: ${playerId}`);
     
     socket.emit("joinHideSeekGame", { lobbyId, playerId, playerName: params.playerName });
 
+    // Prevent duplicate event handlers
+    if (handlersRegisteredRef.current) {
+      console.log("🔄 Event handlers already registered, skipping...");
+      return;
+    }
+    
+    handlersRegisteredRef.current = true;
+
     // Use a debounce mechanism for selectionPhase to prevent spam
+    let selectionPhaseTimeout = null;
     const handleSelectionPhase = ({ playersSelections, hasDuplicateItems = false }) => {
       // Debounce rapid selectionPhase events
-      if (selectionPhaseTimeoutRef.current) {
-        clearTimeout(selectionPhaseTimeoutRef.current);
+      if (selectionPhaseTimeout) {
+        clearTimeout(selectionPhaseTimeout);
       }
       
-      selectionPhaseTimeoutRef.current = setTimeout(() => {
+      selectionPhaseTimeout = setTimeout(() => {
         console.log("🎯 Selection phase update:", playersSelections);
         console.log("🔍 Has duplicate items:", hasDuplicateItems);
         
@@ -300,48 +355,48 @@ export default function TrapGameScreen() {
     };
 
     const handleSelectionComplete = ({ playerItems, firstTurnPlayerId, firstTurnPlayerName }) => {
-  // Check if already processed
-  if (selectionCompleteProcessedRef.current) {
-    console.log("🔄 Selection complete already processed, skipping...");
-    return;
-  }
-  selectionCompleteProcessedRef.current = true;
-  
-  console.log("✅ Selection phase complete, starting game");
-  console.log("📦 Received playerItems:", playerItems);
-  
-  // Convert player ID to string for lookup
-  const playerIdStr = String(playerId);
-  const myItem = playerItems[playerIdStr];
-  
-  setMyTrapItem(myItem);
-  setDuplicateItemsWarning(false);
-  
-  // Update current turn player if provided by server
-  if (firstTurnPlayerId && firstTurnPlayerName) {
-    setCurrentTurnPlayer({
-      id: Number(firstTurnPlayerId),
-      name: firstTurnPlayerName,
-    });
-    currentTurnRef.current = Number(firstTurnPlayerId);
-    console.log(`🔄 Updated current turn to player ${firstTurnPlayerId}`);
-  }
-  
-  // Close both modals and start the game
-  setSelectionModalVisible(false);
-  setCountdownModalVisible(false);
-  setStatusMessage("Answer before time runs out");
-  
-  console.log("🎮 Trap game starting now!");
-  
-  // CRITICAL: Start the timer for the first player with proper timing
-  setTimeout(() => {
-    if (currentTurnRef.current === playerId && !gameOver) {
-      console.log("⏰ I am the first player, starting my timer");
-      startTimer();
-    }
-  }, 500);
-};
+      // Check if already processed
+      if (selectionCompleteProcessedRef.current) {
+        console.log("🔄 Selection complete already processed, skipping...");
+        return;
+      }
+      selectionCompleteProcessedRef.current = true;
+      
+      console.log("✅ Selection phase complete, starting game");
+      console.log("📦 Received playerItems:", playerItems);
+      
+      // Convert player ID to string for lookup
+      const playerIdStr = String(playerId);
+      const myItem = playerItems[playerIdStr];
+      
+      setMyTrapItem(myItem);
+      setDuplicateItemsWarning(false);
+      
+      // Update current turn player if provided by server
+      if (firstTurnPlayerId && firstTurnPlayerName) {
+        setCurrentTurnPlayer({
+          id: Number(firstTurnPlayerId),
+          name: firstTurnPlayerName,
+        });
+        currentTurnRef.current = Number(firstTurnPlayerId);
+        console.log(`🔄 Updated current turn to player ${firstTurnPlayerId}`);
+      }
+      
+      // Close both modals and start the game
+      setSelectionModalVisible(false);
+      setCountdownModalVisible(false);
+      setStatusMessage("Answer before time runs out");
+      
+      console.log("🎮 Trap game starting now!");
+      
+      // Start the timer immediately for the first player
+      setTimeout(() => {
+        if (currentTurnRef.current === playerId) {
+          console.log("⏰ I am the first player, starting my timer");
+          startTimer();
+        }
+      }, 500);
+    };
 
     const handleSelectionFailed = ({ reason }) => {
       Alert.alert("Selection Failed", reason);
@@ -351,100 +406,60 @@ export default function TrapGameScreen() {
       setDuplicateItemsWarning(false);
     };
 
-    const handleItemSolved = async ({ itemId, solvedBy, isHideSeekItem, trapSprung }) => {
-      console.log(`✅ Item ${itemId} solved by player ${solvedBy}, isHideSeek: ${isHideSeekItem}, trapSprung: ${trapSprung}`);
-      
-      // Play appropriate sound based on the type of item solved
-      if (soundsReady) {
-        if (trapSprung) {
-          console.log('🔊 Playing trap-triggered sound (trap item triggered)');
-          await soundService.playSound('trap-triggered');
-        } else if (isHideSeekItem) {
-          // This shouldn't happen in trap mode, but just in case
-          console.log('🔊 Playing trap-triggered sound (trap item found)');
-          await soundService.playSound('trap-triggered');
-        } else {
-          if (Number(solvedBy) === Number(playerId)) {
-            console.log('🔊 Playing item-solved sound (my solve)');
-            await soundService.playSound('item-solved');
-          } else {
-            console.log('🔊 Playing opponent-solved sound (opponent solve)');
-            await soundService.playSound('opponent-solved');
-          }
-        }
-      } else {
-        console.log('🔇 Sounds not ready, cannot play sound');
-      }
-      
-      // Update the item as solved in the local state
-      setItems((prev) => {
-        const updatedItems = prev.map((item) => 
-          item.id === itemId ? { ...item, solved: true, solvedBy, isHideSeekItem, trapSprung } : item
-        );
-        
-        setTimeout(() => {
-          scrollToItem(itemRefs, scrollRef, itemId, updatedItems, calculatedItemsPerRow, itemWidth);
-        }, 150);
-        
-        return updatedItems;
-      });
-
-      // TRAP MODE LOGIC: When someone finds YOUR trap item, THEY get eliminated
-      if (trapSprung && Number(solvedBy) === Number(playerId)) {
-        console.log(`💀 YOU STEPPED ON A TRAP! Eliminating yourself: ${playerId}`);
-        handlePlayerElimination(playerId, "trapSprung");
-      }
-    };
-
-    const handleTurnChanged = async ({ currentTurnId, currentTurnName, timeLeft, players }) => {
-  console.log(`🔄 Turn changed to player ${currentTurnId} (${currentTurnName})`);
+    const handleItemSolved = ({ itemId, solvedBy, isHideSeekItem, trapSprung }) => {
+  console.log(`✅ Item ${itemId} solved by player ${solvedBy}, isHideSeek: ${isHideSeekItem}, trapSprung: ${trapSprung}`);
   
-  if (players && Array.isArray(players)) {
-    const colorMap = {};
-    players.forEach(player => {
-      colorMap[player.id] = player.color;
-      if (String(player.id) === String(playerId)) {
-        setMyColor(player.color);
-      }
-    });
-    setPlayerColors(colorMap);
-  }
-  
-  const newTurnPlayerId = Number(currentTurnId);
-  const isNowMyTurn = newTurnPlayerId === playerId;
-  
-  setCurrentTurnPlayer({
-    id: newTurnPlayerId,
-    name: currentTurnName,
-  });
-  setInput("");
-  
-  // Use the timeLeft from server or reset to turnTime
-  const newTimerValue = timeLeft !== undefined ? timeLeft : turnTime;
-  setTimer(newTimerValue);
-  
-  // Clear any existing timer first
-  clearTimer();
-  
-  // Play turn change sound
-  if (soundsReady) {
-    if (isNowMyTurn) {
-      console.log('🔊 Playing your-turn sound (my turn started)');
-      await soundService.playSound('your-turn');
-    }
-  }
-  
-  // CRITICAL FIX: Always start timer for the current turn player
-  // Don't check for selectionModalVisible or countdownModalVisible here
-  // because by the time turnChanged is called, those should be closed
-  if (isNowMyTurn && !gameOver) {
-    console.log(`⏰ Starting timer for player ${playerId}, time: ${newTimerValue}`);
-    // Use setTimeout to ensure state updates have completed
+  // Update the item as solved in the local state
+  setItems((prev) => {
+    const updatedItems = prev.map((item) => 
+      item.id === itemId ? { ...item, solved: true, solvedBy, isHideSeekItem, trapSprung } : item
+    );
+    
     setTimeout(() => {
-      startTimer();
-    }, 100);
+      scrollToItem(itemRefs, scrollRef, itemId, updatedItems, calculatedItemsPerRow, itemWidth);
+    }, 150);
+    
+    return updatedItems;
+  });
+
+  // TRAP MODE LOGIC: When someone finds YOUR trap item, THEY get eliminated
+  if (trapSprung && Number(solvedBy) === Number(playerId)) {
+    console.log(`💀 YOU STEPPED ON A TRAP! Eliminating yourself: ${playerId}`);
+    handlePlayerElimination(playerId, "trapSprung");
   }
 };
+
+    const handleTurnChanged = ({ currentTurnId, currentTurnName, timeLeft, players }) => {
+      console.log(`🔄 Turn changed to player ${currentTurnId} (${currentTurnName})`);
+      
+      if (players && Array.isArray(players)) {
+        const colorMap = {};
+        players.forEach(player => {
+          colorMap[player.id] = player.color;
+          if (String(player.id) === String(playerId)) {
+            setMyColor(player.color);
+          }
+        });
+        setPlayerColors(colorMap);
+      }
+      
+      setCurrentTurnPlayer({
+        id: Number(currentTurnId),
+        name: currentTurnName,
+      });
+      setInput("");
+      
+      // Update both the ref and state for timer
+      timerValueRef.current = timeLeft || turnTime;
+      setTimer(timeLeft || turnTime);
+      
+      clearTimer();
+      
+      // Start timer for the new turn
+      if (!selectionModalVisible && !countdownModalVisible) {
+        startTimer();
+      }
+    };
 
     const handleGameOver = ({ winner }) => {
       console.log(`🏁 Game over! Winner: ${winner.name}`);
@@ -463,9 +478,7 @@ export default function TrapGameScreen() {
       setEliminatedPlayers(prev => new Set([...prev, eliminatedPlayerId]));
     };
 
-    // Register all event listeners - ONLY ONCE
-    console.log('🎯 Setting up socket listeners for trap game');
-    
+    // Register all event listeners
     socket.on("selectionPhase", handleSelectionPhase);
     socket.on("selectionCountdown", handleSelectionCountdown);
     socket.on("selectionComplete", handleSelectionComplete);
@@ -475,35 +488,28 @@ export default function TrapGameScreen() {
     socket.on("gameOver", handleGameOver);
     socket.on("playerEliminated", handlePlayerEliminated);
 
-    handlersRegisteredRef.current = true;
-
     return () => {
       console.log("🧹 Cleaning up game listeners");
-      
-      // Clear timeouts
-      if (selectionPhaseTimeoutRef.current) {
-        clearTimeout(selectionPhaseTimeoutRef.current);
+      handlersRegisteredRef.current = false;
+      selectionCompleteProcessedRef.current = false;
+      if (selectionPhaseTimeout) {
+        clearTimeout(selectionPhaseTimeout);
       }
       
-      // Only remove listeners if we're actually leaving the game
-      if (hasLeftRef.current || gameOver) {
-        console.log("🔌 Removing socket listeners");
-        socket.off("selectionPhase", handleSelectionPhase);
-        socket.off("selectionCountdown", handleSelectionCountdown);
-        socket.off("selectionComplete", handleSelectionComplete);
-        socket.off("selectionFailed", handleSelectionFailed);
-        socket.off("itemSolved", handleItemSolved);
-        socket.off("turnChanged", handleTurnChanged);
-        socket.off("gameOver", handleGameOver);
-        socket.off("playerEliminated", handlePlayerEliminated);
-        
-        handlersRegisteredRef.current = false;
-        selectionCompleteProcessedRef.current = false;
-      }
+      // Remove specific listeners to prevent duplicates
+      socket.off("selectionPhase", handleSelectionPhase);
+      socket.off("selectionCountdown", handleSelectionCountdown);
+      socket.off("selectionComplete", handleSelectionComplete);
+      socket.off("selectionFailed", handleSelectionFailed);
+      socket.off("itemSolved", handleItemSolved);
+      socket.off("turnChanged", handleTurnChanged);
+      socket.off("gameOver", handleGameOver);
+      socket.off("playerEliminated", handlePlayerEliminated);
       
+      removeGameListeners();
       clearTimer();
     };
-  }, [lobbyId, playerId, soundsReady]); // Removed problematic dependencies
+  }, [lobbyId, playerId, selectionModalVisible, countdownModalVisible]);
 
   // Add cleanup effect to prevent multiple mounts
   useEffect(() => {
@@ -511,34 +517,9 @@ export default function TrapGameScreen() {
       console.log("🔄 TrapGameScreen unmounting - cleaning up everything");
       hasLeftRef.current = true;
       clearTimer();
-      
-      // Only call removeGameListeners if we're actually leaving
       removeGameListeners();
     };
   }, []);
-
-  useEffect(() => {
-  if (isMyTurn && inputRef.current && !gameOver) {
-    // Aggressive focus protection for the current turn
-    const focusInterval = setInterval(() => {
-      if (inputRef.current && Platform.OS === 'web' && document.activeElement !== inputRef.current) {
-        console.log('⌨️ Aggressive focus protection');
-        inputRef.current.focus();
-      }
-    }, 500);
-    
-    return () => clearInterval(focusInterval);
-  }
-}, [isMyTurn, gameOver]);
-
-// Add this useEffect to debug timer issues
-useEffect(() => {
-  console.log(`⏰ Timer state updated: ${timer}s, isMyTurn: ${isMyTurn}, gameOver: ${gameOver}`);
-}, [timer, isMyTurn, gameOver]);
-
-useEffect(() => {
-  console.log(`🔄 Turn state updated: currentTurn=${currentTurnPlayer.id}, isMyTurn=${isMyTurn}`);
-}, [currentTurnPlayer.id, isMyTurn]);
 
   // Handle input during gameplay phase
   const handleInputChange = (text) => {
@@ -577,21 +558,21 @@ useEffect(() => {
       
       // Check if this is someone ELSE'S trap item
       const isTrapItem = Object.values(playerSelections).some(
-        selectedItem => selectedItem.id === matched.id && selectedItem.id !== myTrapItem?.id
-      );
+  selectedItem => selectedItem.id === matched.id && selectedItem.id !== myTrapItem?.id
+);
 
-      console.log("🔍 Is this someone else's trap item?", isTrapItem);
+console.log("🔍 Is this someone else's trap item?", isTrapItem);
 
-      socket.emit("buttonPress", {
-        lobbyId,
-        playerId,
-        correct: true,
-        itemId: matched.id,
-        isHideSeekItem: isTrapItem
-      });
+socket.emit("buttonPress", {
+  lobbyId,
+  playerId,
+  correct: true,
+  itemId: matched.id,
+  isHideSeekItem: isTrapItem // This tells the backend it's a special item
+});
 
       setTimeout(() => {
-        scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth, inputRef);
+        scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth);
       }, 100);
     }
   };
@@ -613,7 +594,25 @@ useEffect(() => {
     );
   };
 
-  // Return to lobby
+  // Get the appropriate border image
+  const getBorderImage = (solvedByPlayerId, isTrapItem = false) => {
+    const colorId = playerColors[solvedByPlayerId];
+    if (!colorId) return null;
+    
+    const color = getColorById(colorId);
+    if (!color || !color.name) return null;
+    
+    const colorName = color.name.toLowerCase();
+    return isTrapItem ? TRAP_BORDERS[colorName] : COLORED_BORDERS[colorName];
+  };
+
+  const getMyColorDisplay = () => {
+    if (!myColor) return "No color selected";
+    const color = getColorById(myColor);
+    return color ? color.display : "No color";
+  };
+
+  // --- Return to lobby ---
   const handleReturnToLobby = () => {
     if (currentTurnPlayer.id === playerId && !gameOver && timer > 0 && !selectionModalVisible) {
       Alert.alert(
@@ -706,42 +705,192 @@ useEffect(() => {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <View style={{ flex: 1 }}>
-        {/* Game Header Component */}
-        <GameHeader
-          onReturnToLobby={handleReturnToLobby}
-          currentTurnPlayer={currentTurnPlayer}
-          playerId={playerId}
-          timer={timer}
-          statusMessage={statusMessage}
-          solvedCount={solvedCount}
-          items={items}
-          playerSolvedCount={playerSolvedCount}
-          gameOver={gameOver}
-          input={input}
-          onInputChange={handleInputChange}
-          inputRef={inputRef}
-          myColor={myColor}
-          eliminatedPlayers={eliminatedPlayers}
-          selectionModalVisible={selectionModalVisible}
-          countdownModalVisible={countdownModalVisible}
+      <View style={{ flex: 1, padding: 20 }}>
+        {/* Game Header */}
+        <View style={styles.topRow}>
+          <View style={styles.rowLeft}>
+            <TouchableOpacity onPress={handleReturnToLobby}>
+              <Text style={{ color: "blue", fontSize: 16 }}>Return to Lobby</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.rowSection}>
+            <Text
+              style={[
+                styles.statusMessage,
+                statusMessage === "Answer before time runs out" && { color: "yellow" },
+                statusMessage === "You lost" && { color: "red" },
+                statusMessage === "You won" && { color: "green" },
+                statusMessage === "You're out!" && { color: "red" },
+              ]}
+            >
+              {statusMessage}
+            </Text>
+          </View>
+
+          <View style={styles.rowRight}>
+            <Text style={styles.counter}>
+              {solvedCount} / {items.length}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.bottomRow}>
+          <View style={styles.rowLeft}>
+            <Text style={styles.countdown}>{timer}s</Text>
+          </View>
+
+          <View style={styles.rowSection}>
+            <Text
+              style={[
+                styles.counter,
+                currentTurnPlayer.id === playerId && { color: "green" },
+                eliminatedPlayers.has(playerId) && { color: "red" },
+              ]}
+            >
+              {eliminatedPlayers.has(playerId) 
+                ? "You're out!" 
+                : currentTurnPlayer.id === playerId
+                  ? "Your turn!"
+                  : `${currentTurnPlayer.name}'s turn`
+              }
+            </Text>
+          </View>
+
+          <View style={styles.rowRight}>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.counter}>
+                Solved {playerSolvedCount}
+              </Text>
+              {myColor && (
+                <Text style={{ color: '#fff', fontSize: 12, marginTop: 2 }}>
+                  My color: {getMyColorDisplay()}
+                </Text>
+              )}
+            </View>
+          </View>
+        </View>
+
+        <TextInput
+          ref={inputRef}
+          placeholder={
+            eliminatedPlayers.has(playerId) 
+              ? "You're eliminated" 
+              : currentTurnPlayer.id === playerId
+                ? "Type item name..."
+                : "Wait for your turn..."
+          }
+          value={input}
+          onChangeText={handleInputChange}
+          style={[
+            styles.input,
+            (currentTurnPlayer.id !== playerId || eliminatedPlayers.has(playerId)) && { backgroundColor: "#ddd" },
+          ]}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={currentTurnPlayer.id === playerId && !gameOver && !eliminatedPlayers.has(playerId) && !selectionModalVisible && !countdownModalVisible}
         />
 
-        {/* Game Grid Component */}
-        <GameGrid
-          items={items}
-          spriteInfo={spriteInfo}
-          itemWidth={itemWidth}
-          calculatedItemsPerRow={calculatedItemsPerRow}
-          scrollRef={scrollRef}
-          itemRefs={itemRefs}
-          gameOver={gameOver}
-          playerColors={playerColors}
-          gameMode={3} // Trap mode
-          mySpecialItem={myTrapItem}
-          playerSelections={playerSelections}
-          eliminatedPlayers={eliminatedPlayers}
-        />
+        <ScrollView 
+          contentContainerStyle={styles.grid} 
+          ref={scrollRef}
+          showsVerticalScrollIndicator={true}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          nativeID="game-scrollview"
+        >
+          {items.map((item) => {
+  const { left, top } = getSpritePosition(item.order, spriteInfo);
+  const isSolvedOrGameOver = item.solved || gameOver;
+  const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
+  
+  // Get border image - use trap borders when a trap is sprung
+  const colorId = item.solvedBy ? playerColors[item.solvedBy] : null;
+  const color = colorId ? getColorById(colorId) : null;
+  const colorName = color ? color.name.toLowerCase() : null;
+  const borderImage = item.solvedBy ? 
+    (item.trapSprung ? TRAP_BORDERS[colorName] : COLORED_BORDERS[colorName]) : 
+    null;
+  
+  const isMyTrapItem = myTrapItem && myTrapItem.id === item.id;
+
+  return (
+    <View 
+      key={item.id} 
+      style={[styles.itemContainer, { width: itemWidth }]}
+      nativeID={`item-${item.id}`}
+    >
+      <View style={styles.outerContainer}>
+        <View 
+          style={styles.imageContainer}
+          ref={(ref) => (itemRefs.current[item.id] = ref)}
+        >
+          {/* My trap item indicator - ALWAYS show if it's my item */}
+          {isMyTrapItem && !item.solved && (
+            <View style={styles.myHideSeekIndicator}>
+              <Text style={styles.myHideSeekText}>YOUR TRAP</Text>
+            </View>
+          )}
+
+          {/* Show unsolved background or solved content */}
+          {!item.solved ? (
+            <Image 
+              source={itemUnsolved}
+              style={styles.unsolvedBackground}
+            />
+          ) : spriteInfo.noSpriteSheet ? (
+            <View style={styles.graySquare}>
+              <Text style={styles.checkmark}>✓</Text>
+            </View>
+          ) : (
+            <Image
+              source={spriteInfo.sheetUrl}
+              style={{
+                width: spriteInfo.sheetWidth * scale,
+                height: spriteInfo.sheetHeight * scale,
+                transform: [
+                  { translateX: -left * scale },
+                  { translateY: -top * scale },
+                ],
+              }}
+            />
+          )}
+        </View>
+        
+        {/* Colored border overlay - use trap borders when trap is sprung */}
+        {item.solved && borderImage && (
+          <Image 
+            source={borderImage}
+            style={styles.borderOverlay}
+          />
+        )}
+        
+        {/* Trap sprung indicator */}
+        {item.trapSprung && (
+          <View style={styles.trapSprungIndicator}>
+            <Text style={styles.trapSprungText}>💀 TRAP!</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Show item name only if it's solved OR it's game over OR it's my trap item */}
+      {(isSolvedOrGameOver || isMyTrapItem) && (
+        <Text
+          style={{
+            color: item.solved ? "#fff" : isMyTrapItem ? "#FF4444" : "gray",
+            textAlign: "center",
+            marginTop: 4,
+            fontSize: isMyTrapItem ? 12 : 14,
+            fontWeight: isMyTrapItem ? "bold" : "normal",
+          }}
+        >
+          {item.name}
+        </Text>
+      )}
+    </View>
+  );
+})}
+        </ScrollView>
 
         {/* Game Modals Component */}
         <GameModals
