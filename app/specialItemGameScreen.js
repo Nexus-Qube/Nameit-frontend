@@ -24,9 +24,11 @@ import { PLAYER_COLORS, getColorById } from "../constants/PlayerColors";
 import styles from "../styles/GameScreenStyles";
 
 import GameModals from "../components/GameModals";
+import soundService from "../services/soundService";
 
 const itemUnsolved = require("../assets/images/item_unsolved.png");
-// Import regular colored borders AND trap mode borders
+const lastSolvedBorder = require("../assets/images/last_solved.png");
+// Import regular colored borders AND special item borders
 const COLORED_BORDERS = {
   red: require("../assets/images/solved_border_red.png"),
   orange: require("../assets/images/solved_border_orange.png"),
@@ -40,7 +42,7 @@ const COLORED_BORDERS = {
   gray: require("../assets/images/solved_border_gray.png"),
 };
 
-const TRAP_BORDERS = {
+const SPECIAL_BORDERS = {
   red: require("../assets/images/Hide&Seek/solved_border_red.png"),
   orange: require("../assets/images/Hide&Seek/solved_border_orange.png"),
   yellow: require("../assets/images/Hide&Seek/solved_border_yellow.png"),
@@ -53,7 +55,7 @@ const TRAP_BORDERS = {
   gray: require("../assets/images/Hide&Seek/solved_border_gray.png"),
 };
 
-export default function TrapGameScreen() {
+export default function SpecialItemGameScreen() {
   const { width } = Dimensions.get('window');
   const params = useLocalSearchParams();
   const router = useRouter();
@@ -79,6 +81,47 @@ export default function TrapGameScreen() {
   const firstTurnPlayerName = params.firstTurnPlayerName || "Unknown";
   const turnTime = Number(params.turnTime) || 10;
   const paramTopicId = Number(params.topicId);
+  const gameMode = Number(params.gameMode) || 2; // Default to Hide & Seek
+
+  // Game mode configuration
+  const GAME_MODES = {
+    HIDE_SEEK: 2,
+    TRAP: 3
+  };
+
+  const getGameModeConfig = () => {
+    switch (gameMode) {
+      case GAME_MODES.TRAP:
+        return {
+          name: "Trap Mode",
+          selectionTitle: "Set Your Trap",
+          selectionPlaceholder: "Choose an item to set as trap...",
+          selectionConfirmText: "Set Trap",
+          validationSuccess: "Perfect trap!",
+          myItemLabel: "YOUR TRAP",
+          myItemColor: "#FF4444",
+          eliminationReason: "trapSprung",
+          specialEventName: "trapSprung",
+          specialSound: "trap-triggered"
+        };
+      case GAME_MODES.HIDE_SEEK:
+      default:
+        return {
+          name: "Hide & Seek Mode", 
+          selectionTitle: "Hide Your Item",
+          selectionPlaceholder: "Choose an item to hide...",
+          selectionConfirmText: "Hide Item",
+          validationSuccess: "Good choice!",
+          myItemLabel: "YOUR ITEM",
+          myItemColor: "#FFD700",
+          eliminationReason: "hideSeekItemFound",
+          specialEventName: "isHideSeekItem",
+          specialSound: "hide-seek-found"
+        };
+    }
+  };
+
+  const gameConfig = getGameModeConfig();
 
   const [topicId, setTopicId] = useState(paramTopicId || null);
   const [currentTurnPlayer, setCurrentTurnPlayer] = useState({
@@ -99,20 +142,22 @@ export default function TrapGameScreen() {
     noSpriteSheet: false,
   });
   
-  // Trap mode specific states
+  // Special item game states
   const [selectionModalVisible, setSelectionModalVisible] = useState(true);
-  const [trapInput, setTrapInput] = useState("");
-  const [trapValidation, setTrapValidation] = useState(null);
-  const [myTrapItem, setMyTrapItem] = useState(null);
+  const [specialItemInput, setSpecialItemInput] = useState("");
+  const [specialItemValidation, setSpecialItemValidation] = useState(null);
+  const [mySpecialItem, setMySpecialItem] = useState(null);
   const [playerSelections, setPlayerSelections] = useState({});
   const [eliminatedPlayers, setEliminatedPlayers] = useState(new Set());
+  const [lastSolvedItemId, setLastSolvedItemId] = useState(null);
   
   const [gameModalVisible, setGameModalVisible] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Answer before time runs out");
   const [playerColors, setPlayerColors] = useState({});
   const [myColor, setMyColor] = useState(null);
+  const [soundsReady, setSoundsReady] = useState(false);
 
-  // New states for selection phase
+  // Selection phase states
   const [duplicateItemsWarning, setDuplicateItemsWarning] = useState(false);
   const [countdownModalVisible, setCountdownModalVisible] = useState(false);
   const [gameStartCountdown, setGameStartCountdown] = useState(0);
@@ -133,6 +178,43 @@ export default function TrapGameScreen() {
 
   // Custom hooks
   const { items, setItems, playerSolvedCount, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
+
+  // Initialize sound service
+  useEffect(() => {
+    let mounted = true;
+
+    const initializeSounds = async () => {
+      try {
+        console.log('🎮 Starting sound initialization for special item game...');
+        
+        // Wait for sounds to load with timeout
+        const loadPromise = soundService.loadSounds();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Sound loading timeout')), 10000)
+        );
+        
+        await Promise.race([loadPromise, timeoutPromise]);
+        
+        if (mounted) {
+          setSoundsReady(true);
+          console.log('✅ Sounds ready for special item game');
+        }
+      } catch (error) {
+        console.error('❌ Sound initialization failed:', error);
+        if (mounted) {
+          setSoundsReady(false);
+        }
+        // Game continues without sounds
+      }
+    };
+
+    // Don't block game start on sound loading
+    initializeSounds();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Timer functions
   const clearTimer = () => {
@@ -189,7 +271,7 @@ export default function TrapGameScreen() {
     }
   }, [currentTurnPlayer.id, playerId, gameOver, eliminatedPlayers]);
 
-  // NEW: Simple effect to detect when game starts and focus input for first player
+  // Effect to detect when game starts and focus input for first player
   useEffect(() => {
     // Game starts when selection modal closes and it's the first player's turn
     if (!selectionModalVisible && !countdownModalVisible && !gameStartedRef.current) {
@@ -205,29 +287,29 @@ export default function TrapGameScreen() {
     }
   }, [selectionModalVisible, countdownModalVisible, currentTurnPlayer.id, playerId]);
 
-  // Trap mode specific functions
-  const validateTrapItem = (itemName) => {
+  // Special item validation and selection
+  const validateSpecialItem = (itemName) => {
     const matchedItem = items.find(item => 
       item.name.toLowerCase() === itemName.toLowerCase().trim()
     );
     
     if (!matchedItem) {
-      setTrapValidation("This item doesn't exist");
+      setSpecialItemValidation("This item doesn't exist");
       return null;
     }
     
-    setTrapValidation("Perfect trap!");
+    setSpecialItemValidation(gameConfig.validationSuccess);
     return matchedItem;
   };
 
-  const handleTrapConfirm = () => {
-    const matchedItem = validateTrapItem(trapInput);
+  const handleSpecialItemConfirm = () => {
+    const matchedItem = validateSpecialItem(specialItemInput);
     
     if (matchedItem) {
-      console.log(`🎯 Player ${playerId} selected trap item: ${matchedItem.name}`);
-      setMyTrapItem(matchedItem);
+      console.log(`🎯 Player ${playerId} selected ${gameConfig.name.toLowerCase()} item: ${matchedItem.name}`);
+      setMySpecialItem(matchedItem);
       
-      socket.emit("selectHideSeekItem", { // Using same event as hide & seek
+      socket.emit("selectHideSeekItem", {
         lobbyId,
         playerId: String(playerId),
         itemId: matchedItem.id,
@@ -285,7 +367,7 @@ export default function TrapGameScreen() {
   // Modal control functions
   const handleCloseSelectionModal = () => {
     // Only allow closing if no item is selected yet
-    if (!myTrapItem) {
+    if (!mySpecialItem) {
       setSelectionModalVisible(false);
     }
   };
@@ -299,24 +381,16 @@ export default function TrapGameScreen() {
   };
 
   const handleSelectionInputChange = (text) => {
-    setTrapInput(text);
-    setTrapValidation(null);
+    setSpecialItemInput(text);
+    setSpecialItemValidation(null);
     if (duplicateItemsWarning) setDuplicateItemsWarning(false);
   };
 
-  // Socket listeners for Trap mode
+  // Socket listeners for special item games
   useEffect(() => {
-    console.log(`🎮 Joining Trap game - Lobby: ${lobbyId}, Player: ${playerId}`);
+    console.log(`🎮 Joining ${gameConfig.name} - Lobby: ${lobbyId}, Player: ${playerId}`);
     
     socket.emit("joinHideSeekGame", { lobbyId, playerId, playerName: params.playerName });
-
-    // Prevent duplicate event handlers
-    if (handlersRegisteredRef.current) {
-      console.log("🔄 Event handlers already registered, skipping...");
-      return;
-    }
-    
-    handlersRegisteredRef.current = true;
 
     // Use a debounce mechanism for selectionPhase to prevent spam
     let selectionPhaseTimeout = null;
@@ -334,9 +408,9 @@ export default function TrapGameScreen() {
         setDuplicateItemsWarning(hasDuplicateItems);
         
         if (hasDuplicateItems) {
-          setMyTrapItem(null);
-          setTrapInput("");
-          setTrapValidation(null);
+          setMySpecialItem(null);
+          setSpecialItemInput("");
+          setSpecialItemValidation(null);
         }
       }, 100);
     };
@@ -369,7 +443,7 @@ export default function TrapGameScreen() {
       const playerIdStr = String(playerId);
       const myItem = playerItems[playerIdStr];
       
-      setMyTrapItem(myItem);
+      setMySpecialItem(myItem);
       setDuplicateItemsWarning(false);
       
       // Update current turn player if provided by server
@@ -387,7 +461,7 @@ export default function TrapGameScreen() {
       setCountdownModalVisible(false);
       setStatusMessage("Answer before time runs out");
       
-      console.log("🎮 Trap game starting now!");
+      console.log(`🎮 ${gameConfig.name} starting now!`);
       
       // Start the timer immediately for the first player
       setTimeout(() => {
@@ -400,36 +474,75 @@ export default function TrapGameScreen() {
 
     const handleSelectionFailed = ({ reason }) => {
       Alert.alert("Selection Failed", reason);
-      setTrapInput("");
-      setTrapValidation(null);
-      setMyTrapItem(null);
+      setSpecialItemInput("");
+      setSpecialItemValidation(null);
+      setMySpecialItem(null);
       setDuplicateItemsWarning(false);
     };
 
-    const handleItemSolved = ({ itemId, solvedBy, isHideSeekItem, trapSprung }) => {
-  console.log(`✅ Item ${itemId} solved by player ${solvedBy}, isHideSeek: ${isHideSeekItem}, trapSprung: ${trapSprung}`);
-  
-  // Update the item as solved in the local state
-  setItems((prev) => {
-    const updatedItems = prev.map((item) => 
-      item.id === itemId ? { ...item, solved: true, solvedBy, isHideSeekItem, trapSprung } : item
-    );
-    
-    setTimeout(() => {
-      scrollToItem(itemRefs, scrollRef, itemId, updatedItems, calculatedItemsPerRow, itemWidth);
-    }, 150);
-    
-    return updatedItems;
-  });
+    const handleItemSolved = async ({ itemId, solvedBy, isHideSeekItem, trapSprung }) => {
+      console.log(`✅ Item ${itemId} solved by player ${solvedBy}, isHideSeek: ${isHideSeekItem}, trapSprung: ${trapSprung}`);
+      
+      // Update last solved item
+      setLastSolvedItemId(itemId);
+      
+      // Play appropriate sound
+      if (soundsReady) {
+        if (isHideSeekItem || trapSprung) {
+          // Play special sound for hide & seek found or trap triggered
+          console.log(`🔊 Playing ${gameConfig.specialSound} sound (special item event)`);
+          await soundService.playSound(gameConfig.specialSound);
+        } else if (Number(solvedBy) === Number(playerId)) {
+          // Play item-solved sound for my regular solve
+          console.log('🔊 Playing item-solved sound (my solve confirmed by server)');
+          await soundService.playSound('item-solved');
+        } else {
+          // Play opponent-solved sound for opponent's regular solve
+          console.log('🔊 Playing opponent-solved sound (opponent solve)');
+          await soundService.playSound('opponent-solved');
+        }
+      } else {
+        console.log('🔇 Sounds not ready, cannot play sound');
+      }
+      
+      // Update the item as solved in the local state
+      setItems((prev) => {
+        const updatedItems = prev.map((item) => 
+          item.id === itemId ? { 
+            ...item, 
+            solved: true, 
+            solvedBy, 
+            isHideSeekItem,
+            trapSprung 
+          } : item
+        );
+        
+        setTimeout(() => {
+          scrollToItem(itemRefs, scrollRef, itemId, updatedItems, calculatedItemsPerRow, itemWidth);
+        }, 150);
+        
+        return updatedItems;
+      });
 
-  // TRAP MODE LOGIC: When someone finds YOUR trap item, THEY get eliminated
-  if (trapSprung && Number(solvedBy) === Number(playerId)) {
-    console.log(`💀 YOU STEPPED ON A TRAP! Eliminating yourself: ${playerId}`);
-    handlePlayerElimination(playerId, "trapSprung");
-  }
-};
+      // GAME MODE SPECIFIC ELIMINATION LOGIC
+      if (gameMode === GAME_MODES.HIDE_SEEK && isHideSeekItem) {
+        // HIDE & SEEK: When someone finds YOUR item, YOU get eliminated
+        Object.entries(playerSelections).forEach(([specialItemPlayerId, selectedItem]) => {
+          if (selectedItem.id === itemId && Number(specialItemPlayerId) !== Number(solvedBy)) {
+            console.log(`🎯 Hide & Seek item found! Eliminating player ${specialItemPlayerId}`);
+            handlePlayerElimination(Number(specialItemPlayerId), "hideSeekItemFound");
+          }
+        });
+      } else if (gameMode === GAME_MODES.TRAP && trapSprung) {
+        // TRAP MODE: When someone finds YOUR trap, THEY get eliminated
+        if (Number(solvedBy) === Number(playerId)) {
+          console.log(`💀 YOU STEPPED ON A TRAP! Eliminating yourself: ${playerId}`);
+          handlePlayerElimination(playerId, "trapSprung");
+        }
+      }
+    };
 
-    const handleTurnChanged = ({ currentTurnId, currentTurnName, timeLeft, players }) => {
+    const handleTurnChanged = async ({ currentTurnId, currentTurnName, timeLeft, players }) => {
       console.log(`🔄 Turn changed to player ${currentTurnId} (${currentTurnName})`);
       
       if (players && Array.isArray(players)) {
@@ -443,8 +556,11 @@ export default function TrapGameScreen() {
         setPlayerColors(colorMap);
       }
       
+      const newTurnPlayerId = Number(currentTurnId);
+      const isNowMyTurn = newTurnPlayerId === playerId;
+
       setCurrentTurnPlayer({
-        id: Number(currentTurnId),
+        id: newTurnPlayerId,
         name: currentTurnName,
       });
       setInput("");
@@ -454,10 +570,16 @@ export default function TrapGameScreen() {
       setTimer(timeLeft || turnTime);
       
       clearTimer();
-      
+
       // Start timer for the new turn
       if (!selectionModalVisible && !countdownModalVisible) {
         startTimer();
+      }
+
+      // Play turn change sound
+      if (soundsReady && isNowMyTurn) {
+        console.log('🔊 Playing your-turn sound (my turn started)');
+        await soundService.playSound('your-turn');
       }
     };
 
@@ -509,12 +631,12 @@ export default function TrapGameScreen() {
       removeGameListeners();
       clearTimer();
     };
-  }, [lobbyId, playerId, selectionModalVisible, countdownModalVisible]);
+  }, [lobbyId, playerId, selectionModalVisible, countdownModalVisible, gameMode, soundsReady]);
 
   // Add cleanup effect to prevent multiple mounts
   useEffect(() => {
     return () => {
-      console.log("🔄 TrapGameScreen unmounting - cleaning up everything");
+      console.log("🔄 SpecialItemGameScreen unmounting - cleaning up everything");
       hasLeftRef.current = true;
       clearTimer();
       removeGameListeners();
@@ -532,18 +654,18 @@ export default function TrapGameScreen() {
     
     if (matched) {
       console.log("🎯 Matched item:", matched.name);
-      console.log("🔍 My trap item:", myTrapItem);
+      console.log("🔍 My special item:", mySpecialItem);
       
-      // Check if player is trying to solve their OWN trap item
-      const isMyOwnItem = myTrapItem && matched.id === myTrapItem.id;
+      // Check if player is trying to solve their OWN special item
+      const isMyOwnItem = mySpecialItem && matched.id === mySpecialItem.id;
       
       if (isMyOwnItem) {
-        console.log("🚫 BLOCKED: Player tried to solve their own trap item");
+        console.log("🚫 BLOCKED: Player tried to solve their own special item");
         
         // Show warning to the player
         Alert.alert(
           "Not Allowed",
-          "You cannot solve your own trap item! Choose a different item.",
+          `You cannot solve your own ${gameConfig.name.toLowerCase()} item! Choose a different item.`,
           [{ text: "OK" }]
         );
         
@@ -552,24 +674,24 @@ export default function TrapGameScreen() {
         return;
       }
       
-      console.log(`✅ ALLOWED: Solving item that is not my trap item`);
+      console.log(`✅ ALLOWED: Solving item that is not my special item`);
       setInput("");
       incrementPlayerSolvedCount();
       
-      // Check if this is someone ELSE'S trap item
-      const isTrapItem = Object.values(playerSelections).some(
-  selectedItem => selectedItem.id === matched.id && selectedItem.id !== myTrapItem?.id
-);
+      // Check if this is someone ELSE'S special item
+      const isSpecialItem = Object.values(playerSelections).some(
+        selectedItem => selectedItem.id === matched.id && selectedItem.id !== mySpecialItem?.id
+      );
 
-console.log("🔍 Is this someone else's trap item?", isTrapItem);
+      console.log("🔍 Is this someone else's special item?", isSpecialItem);
 
-socket.emit("buttonPress", {
-  lobbyId,
-  playerId,
-  correct: true,
-  itemId: matched.id,
-  isHideSeekItem: isTrapItem // This tells the backend it's a special item
-});
+      socket.emit("buttonPress", {
+        lobbyId,
+        playerId,
+        correct: true,
+        itemId: matched.id,
+        isHideSeekItem: isSpecialItem
+      });
 
       setTimeout(() => {
         scrollToItem(itemRefs, scrollRef, matched.id, items, calculatedItemsPerRow, itemWidth);
@@ -595,7 +717,7 @@ socket.emit("buttonPress", {
   };
 
   // Get the appropriate border image
-  const getBorderImage = (solvedByPlayerId, isTrapItem = false) => {
+  const getBorderImage = (solvedByPlayerId, isSpecialItem = false) => {
     const colorId = playerColors[solvedByPlayerId];
     if (!colorId) return null;
     
@@ -603,7 +725,7 @@ socket.emit("buttonPress", {
     if (!color || !color.name) return null;
     
     const colorName = color.name.toLowerCase();
-    return isTrapItem ? TRAP_BORDERS[colorName] : COLORED_BORDERS[colorName];
+    return isSpecialItem ? SPECIAL_BORDERS[colorName] : COLORED_BORDERS[colorName];
   };
 
   const getMyColorDisplay = () => {
@@ -632,10 +754,11 @@ socket.emit("buttonPress", {
     // Reset all game-specific states
     setSelectionModalVisible(false);
     setCountdownModalVisible(false);
-    setMyTrapItem(null);
-    setTrapInput("");
-    setTrapValidation(null);
+    setMySpecialItem(null);
+    setSpecialItemInput("");
+    setSpecialItemValidation(null);
     setEliminatedPlayers(new Set());
+    setLastSolvedItemId(null);
     setInput("");
     
     console.log(`🔄 Returning to waiting room: lobby ${lobbyId}, player ${playerId}`);
@@ -697,6 +820,108 @@ socket.emit("buttonPress", {
     removeGameListeners();
     
     router.replace("/lobbiesScreen");
+  };
+
+  // Render individual item
+  const renderItem = (item) => {
+    const { left, top } = getSpritePosition(item.order, spriteInfo);
+    const isSolvedOrGameOver = item.solved || gameOver;
+    const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
+    const isLastSolved = item.id === lastSolvedItemId;
+    
+    // Get border image - use special borders for special items
+    const colorId = item.solvedBy ? playerColors[item.solvedBy] : null;
+    const color = colorId ? getColorById(colorId) : null;
+    const colorName = color ? color.name.toLowerCase() : null;
+    const borderImage = item.solvedBy ? 
+      ((item.isHideSeekItem || item.trapSprung) ? SPECIAL_BORDERS[colorName] : COLORED_BORDERS[colorName]) : 
+      null;
+    
+    const isMySpecialItem = mySpecialItem && mySpecialItem.id === item.id;
+
+    return (
+      <View 
+        key={item.id} 
+        style={[styles.itemContainer, { width: itemWidth }]}
+        nativeID={`item-${item.id}`}
+      >
+        <View style={styles.outerContainer}>
+          <View 
+            style={styles.imageContainer}
+            ref={(ref) => (itemRefs.current[item.id] = ref)}
+          >
+            {/* My special item indicator - ALWAYS show if it's my item */}
+            {isMySpecialItem && !item.solved && (
+              <View style={[styles.myHideSeekIndicator, { backgroundColor: gameConfig.myItemColor }]}>
+                <Text style={styles.myHideSeekText}>{gameConfig.myItemLabel}</Text>
+              </View>
+            )}
+
+            {/* Show unsolved background or solved content */}
+            {!item.solved ? (
+              <Image 
+                source={itemUnsolved}
+                style={styles.unsolvedBackground}
+              />
+            ) : spriteInfo.noSpriteSheet ? (
+              <View style={styles.graySquare}>
+                <Text style={styles.checkmark}>✓</Text>
+              </View>
+            ) : (
+              <Image
+                source={spriteInfo.sheetUrl}
+                style={{
+                  width: spriteInfo.sheetWidth * scale,
+                  height: spriteInfo.sheetHeight * scale,
+                  transform: [
+                    { translateX: -left * scale },
+                    { translateY: -top * scale },
+                  ],
+                }}
+              />
+            )}
+          </View>
+          
+          {/* Colored border overlay - use special borders for special items */}
+          {item.solved && borderImage && (
+            <Image 
+              source={borderImage}
+              style={styles.borderOverlay}
+            />
+          )}
+          
+          {/* Last solved indicator - on top of regular border */}
+          {isLastSolved && (
+            <Image 
+              source={lastSolvedBorder}
+              style={styles.borderOverlay}
+            />
+          )}
+          
+          {/* Trap sprung indicator (only for trap mode) */}
+          {item.trapSprung && (
+            <View style={styles.trapSprungIndicator}>
+              <Text style={styles.trapSprungText}>💀 TRAP!</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Show item name only if it's solved OR it's game over OR it's my special item */}
+        {(isSolvedOrGameOver || isMySpecialItem) && (
+          <Text
+            style={{
+              color: item.solved ? "#fff" : isMySpecialItem ? gameConfig.myItemColor : "gray",
+              textAlign: "center",
+              marginTop: 4,
+              fontSize: isMySpecialItem ? 12 : 14,
+              fontWeight: isMySpecialItem ? "bold" : "normal",
+            }}
+          >
+            {item.name}
+          </Text>
+        )}
+      </View>
+    );
   };
 
   return (
@@ -799,97 +1024,7 @@ socket.emit("buttonPress", {
           keyboardDismissMode="on-drag"
           nativeID="game-scrollview"
         >
-          {items.map((item) => {
-  const { left, top } = getSpritePosition(item.order, spriteInfo);
-  const isSolvedOrGameOver = item.solved || gameOver;
-  const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
-  
-  // Get border image - use trap borders when a trap is sprung
-  const colorId = item.solvedBy ? playerColors[item.solvedBy] : null;
-  const color = colorId ? getColorById(colorId) : null;
-  const colorName = color ? color.name.toLowerCase() : null;
-  const borderImage = item.solvedBy ? 
-    (item.trapSprung ? TRAP_BORDERS[colorName] : COLORED_BORDERS[colorName]) : 
-    null;
-  
-  const isMyTrapItem = myTrapItem && myTrapItem.id === item.id;
-
-  return (
-    <View 
-      key={item.id} 
-      style={[styles.itemContainer, { width: itemWidth }]}
-      nativeID={`item-${item.id}`}
-    >
-      <View style={styles.outerContainer}>
-        <View 
-          style={styles.imageContainer}
-          ref={(ref) => (itemRefs.current[item.id] = ref)}
-        >
-          {/* My trap item indicator - ALWAYS show if it's my item */}
-          {isMyTrapItem && !item.solved && (
-            <View style={styles.myHideSeekIndicator}>
-              <Text style={styles.myHideSeekText}>YOUR TRAP</Text>
-            </View>
-          )}
-
-          {/* Show unsolved background or solved content */}
-          {!item.solved ? (
-            <Image 
-              source={itemUnsolved}
-              style={styles.unsolvedBackground}
-            />
-          ) : spriteInfo.noSpriteSheet ? (
-            <View style={styles.graySquare}>
-              <Text style={styles.checkmark}>✓</Text>
-            </View>
-          ) : (
-            <Image
-              source={spriteInfo.sheetUrl}
-              style={{
-                width: spriteInfo.sheetWidth * scale,
-                height: spriteInfo.sheetHeight * scale,
-                transform: [
-                  { translateX: -left * scale },
-                  { translateY: -top * scale },
-                ],
-              }}
-            />
-          )}
-        </View>
-        
-        {/* Colored border overlay - use trap borders when trap is sprung */}
-        {item.solved && borderImage && (
-          <Image 
-            source={borderImage}
-            style={styles.borderOverlay}
-          />
-        )}
-        
-        {/* Trap sprung indicator */}
-        {item.trapSprung && (
-          <View style={styles.trapSprungIndicator}>
-            <Text style={styles.trapSprungText}>💀 TRAP!</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Show item name only if it's solved OR it's game over OR it's my trap item */}
-      {(isSolvedOrGameOver || isMyTrapItem) && (
-        <Text
-          style={{
-            color: item.solved ? "#fff" : isMyTrapItem ? "#FF4444" : "gray",
-            textAlign: "center",
-            marginTop: 4,
-            fontSize: isMyTrapItem ? 12 : 14,
-            fontWeight: isMyTrapItem ? "bold" : "normal",
-          }}
-        >
-          {item.name}
-        </Text>
-      )}
-    </View>
-  );
-})}
+          {items.map(renderItem)}
         </ScrollView>
 
         {/* Game Modals Component */}
@@ -900,11 +1035,11 @@ socket.emit("buttonPress", {
           onCloseSelectionModal={handleCloseSelectionModal}
           onCloseCountdownModal={handleCloseCountdownModal}
           onCloseGameModal={handleCloseGameModal}
-          selectionInput={trapInput}
+          selectionInput={specialItemInput}
           onSelectionInputChange={handleSelectionInputChange}
-          selectionValidation={trapValidation}
-          onSelectionConfirm={handleTrapConfirm}
-          mySpecialItem={myTrapItem}
+          selectionValidation={specialItemValidation}
+          onSelectionConfirm={handleSpecialItemConfirm}
+          mySpecialItem={mySpecialItem}
           duplicateItemsWarning={duplicateItemsWarning}
           gameStartCountdown={gameStartCountdown}
           winner={winner}
@@ -913,7 +1048,8 @@ socket.emit("buttonPress", {
           items={items}
           onReturnToLobby={handleReturnToLobby}
           onLeaveGame={handleLeaveGame}
-          gameMode={3} // Trap mode
+          gameMode={gameMode}
+          gameConfig={gameConfig}
         />
       </View>
     </KeyboardAvoidingView>

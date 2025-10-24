@@ -24,6 +24,7 @@ import GameModals from "../components/GameModals";
 import soundService from "../services/soundService";
 
 const solvedBorder = require("../assets/images/solved_border_default.png");
+const lastSolvedBorder = require("../assets/images/last_solved.png");
 const itemUnsolved = require("../assets/images/item_unsolved.png");
 
 export default function GameScreen() {
@@ -63,6 +64,8 @@ export default function GameScreen() {
   const [gameOver, setGameOver] = useState(false);
   const [gameModalVisible, setGameModalVisible] = useState(false);
   const [soundsReady, setSoundsReady] = useState(false);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [lastSolvedItemId, setLastSolvedItemId] = useState(null);
 
   const [spriteInfo, setSpriteInfo] = useState({
   spriteSize: 0,        // Will be set from API (always available)
@@ -78,6 +81,8 @@ export default function GameScreen() {
   const itemRefs = useRef({});
   const intervalRef = useRef(null);
   const inputRef = useRef(null);
+  const initialFocusAttemptedRef = useRef(false);
+  const isMountedRef = useRef(true); // Add mounted ref for cleanup
 
   // Custom hooks
   const { items, setItems, playerSolvedCount, handleItemMatch, solvedCount, incrementPlayerSolvedCount } = useGameLogic();
@@ -85,6 +90,8 @@ export default function GameScreen() {
   // Initialize sound service on component mount
   useEffect(() => {
     let mounted = true;
+    isMountedRef.current = true;
+
     const initializeSounds = async () => {
       try {
         console.log('🎮 Starting sound initialization for single player game...');
@@ -115,6 +122,7 @@ export default function GameScreen() {
 
     return () => {
       mounted = false;
+      isMountedRef.current = false;
       // Don't unload sounds immediately as they might be needed by other components
       // soundService.unloadSounds();
     };
@@ -187,11 +195,40 @@ export default function GameScreen() {
     fetchData();
   }, [topicId]);
 
-  // Start timer on component mount
+  // Start timer on component mount and set game as started
   useEffect(() => {
     startTimer();
+    setGameStarted(true);
     return () => clearTimer();
   }, [mode]);
+
+  // Auto-focus input when game starts and items are loaded
+  useEffect(() => {
+    if (gameStarted && items.length > 0 && !gameOver && !initialFocusAttemptedRef.current) {
+      console.log('🎮 Game started - attempting initial focus');
+      initialFocusAttemptedRef.current = true;
+      
+      const focusInput = () => {
+        if (isMountedRef.current && inputRef.current) {
+          console.log('🎯 Focusing input on game start');
+          inputRef.current.focus();
+          
+          // Double-check focus after a short delay (no document check)
+          setTimeout(() => {
+            if (isMountedRef.current && inputRef.current) {
+              console.log('🎯 Re-focusing input (second attempt)');
+              inputRef.current.focus();
+            }
+          }, 200);
+        }
+      };
+
+      // Small delay to ensure the component is fully rendered
+      const focusTimer = setTimeout(focusInput, 300);
+      
+      return () => clearTimeout(focusTimer);
+    }
+  }, [gameStarted, items.length, gameOver]);
 
   // Check for game completion
   useEffect(() => {
@@ -221,6 +258,9 @@ const handleInputChange = async (text) => {
         console.log('🔇 Sounds not ready, skipping sound');
       }
 
+    // Update last solved item
+    setLastSolvedItemId(matched.id);
+
     // MANUALLY UPDATE ITEMS TO MARK AS SOLVED
     setItems(prev => prev.map(item => 
       item.id === matched.id ? { ...item, solved: true, solvedBy: 1 } : item
@@ -244,7 +284,7 @@ const handleInputChange = async (text) => {
       
       // Force focus restoration after clear
       setTimeout(() => {
-        if (inputRef.current) {
+        if (isMountedRef.current && inputRef.current) {
           console.log(`⌨️ Restoring focus after delayed clear`);
           inputRef.current.focus();
         }
@@ -260,9 +300,14 @@ const handleInputChange = async (text) => {
   };
 
   const handleExitGame = () => {
+    // Set mounted to false immediately to prevent any further focus attempts
+    isMountedRef.current = false;
     clearTimer();
     setGameOver(false);
     setGameModalVisible(false);
+    setLastSolvedItemId(null);
+    
+    // Use replace instead of push to avoid navigation issues
     router.replace("/");
   };
 
@@ -272,7 +317,20 @@ const handleInputChange = async (text) => {
     setGameModalVisible(false);
     setTime(mode === "countdown" ? 60 : 0);
     setInput(""); // Reset input on restart
+    setLastSolvedItemId(null);
     setItems(prev => prev.map(item => ({ ...item, solved: false })));
+    initialFocusAttemptedRef.current = false; // Reset focus flag
+    setGameStarted(false); // Reset game started flag
+    
+    // Ensure component is still mounted before setting state
+    if (isMountedRef.current) {
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          setGameStarted(true); // Set game as started again after state reset
+        }
+      }, 100);
+    }
+    
     startTimer();
   };
 
@@ -329,14 +387,15 @@ const handleInputChange = async (text) => {
           editable={!gameOver}
           onBlur={() => {
             console.log('🛑 BLUR EVENT DETECTED - immediately refocusing');
-            if (!gameOver) {
-              // Immediate refocus with multiple attempts
+            if (!gameOver && isMountedRef.current) {
+              // Immediate refocus with multiple attempts (no document check)
               const refocusAttempt = (attempt = 0) => {
-                if (attempt < 5 && inputRef.current) {
+                if (attempt < 5 && isMountedRef.current && inputRef.current) {
                   setTimeout(() => {
-                    inputRef.current.focus();
-                    console.log(`🛑 Refocus attempt ${attempt + 1}`);
-                    if (document.activeElement !== inputRef.current) {
+                    if (isMountedRef.current && inputRef.current) {
+                      inputRef.current.focus();
+                      console.log(`🛑 Refocus attempt ${attempt + 1}`);
+                      // Just try to focus without checking document.activeElement
                       refocusAttempt(attempt + 1);
                     }
                   }, attempt * 50);
@@ -358,31 +417,23 @@ const handleInputChange = async (text) => {
           onScrollBeginDrag={(e) => {
             console.log('🛑 Scroll began - preventing focus loss');
             // Prevent focus loss when scroll starts
-            if (inputRef.current) {
+            if (isMountedRef.current && inputRef.current) {
               inputRef.current.focus();
             }
           }}
           onTouchStart={(e) => {
             console.log('🛑 Touch started - maintaining focus');
             // Prevent touch events from stealing focus
-            if (inputRef.current) {
+            if (isMountedRef.current && inputRef.current) {
               inputRef.current.focus();
             }
           }}
-          // Web-specific focus prevention
-          {...(Platform.OS === 'web' && {
-            onMouseDown: (e) => {
-              console.log('🛑 Mouse down - maintaining focus');
-              // Prevent mouse events from stealing focus on web
-              if (inputRef.current) {
-                inputRef.current.focus();
-              }
-            }
-          })}
+          // Remove web-specific focus prevention since it uses document
         >
           {items.map((item) => {
             const { left, top } = getSpritePosition(item.order, spriteInfo);
             const isSolvedOrGameOver = item.solved || gameOver;
+            const isLastSolved = item.id === lastSolvedItemId;
             
             const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
 
@@ -424,6 +475,14 @@ const handleInputChange = async (text) => {
                   {item.solved && (
                     <Image 
                       source={solvedBorder}
+                      style={styles.borderOverlay}
+                    />
+                  )}
+                  
+                  {/* Last solved indicator - on top of regular border */}
+                  {isLastSolved && (
+                    <Image 
+                      source={lastSolvedBorder}
                       style={styles.borderOverlay}
                     />
                   )}

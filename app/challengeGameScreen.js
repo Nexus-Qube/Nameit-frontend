@@ -22,12 +22,12 @@ import { getSpritePosition, calculateSpriteScale } from "../helpers/spriteHelper
 import { initializeGameItems } from "../helpers/gameLogicHelpers";
 import { PLAYER_COLORS, getColorById } from "../constants/PlayerColors";
 import styles from "../styles/GameScreenStyles";
-//import itemUnsolved from "../assets/images/item_unsolved.png";
 
 import GameModals from "../components/GameModals";
 import soundService from "../services/soundService";
 
 const itemUnsolved = require("../assets/images/item_unsolved.png");
+const lastSolvedBorder = require("../assets/images/last_solved.png");
 // Import all colored borders
 const COLORED_BORDERS = {
   red: require("../assets/images/solved_border_red.png"),
@@ -90,6 +90,7 @@ export default function ChallengeGameScreen() {
   const [gameOver, setGameOver] = useState(false);
   const [gameModalVisible, setGameModalVisible] = useState(false);
   const [soundsReady, setSoundsReady] = useState(false);
+  const [lastSolvedItemId, setLastSolvedItemId] = useState(null);
 
   const [winner, setWinner] = useState(null);
   const [input, setInput] = useState("");
@@ -145,16 +146,11 @@ export default function ChallengeGameScreen() {
     }, 1000);
   };
 
-  // NEW: Function to focus the input
-
+  // Function to focus the input
   const focusInput = () => {
-
     if (inputRef.current) {
-
       inputRef.current.focus();
-
     }
-
   };
 
    // Initialize sound service
@@ -196,26 +192,16 @@ export default function ChallengeGameScreen() {
     };
   }, []);
 
-  // NEW: Effect to auto-focus input when it becomes player's turn
-
+  // Effect to auto-focus input when it becomes player's turn
   useEffect(() => {
-
     if (currentTurnPlayer.id === playerId && !gameOver) {
-
       // Small delay to ensure the turn change has completed
-
       const focusTimer = setTimeout(() => {
-
         focusInput();
-
       }, 100);
-
       
-
       return () => clearTimeout(focusTimer);
-
     }
-
   }, [currentTurnPlayer.id, playerId, gameOver]);
 
   // --- Fetch topic + items using API ---
@@ -285,6 +271,9 @@ export default function ChallengeGameScreen() {
 
     const handleItemSolved = async ({ itemId, solvedBy }) => {
       console.log(`✅ Item ${itemId} solved by player ${solvedBy} (I am player ${playerId})`);
+      
+      // Update last solved item
+      setLastSolvedItemId(itemId);
       
       // Play appropriate sound based on who solved the item
       if (soundsReady) {
@@ -422,6 +411,7 @@ export default function ChallengeGameScreen() {
     setGameOver(false);
     setWinner(null);
     setGameModalVisible(false);
+    setLastSolvedItemId(null);
     
     socket.emit("returnToWaitingRoom", { lobbyId, playerId });
     removeGameListeners();
@@ -443,6 +433,7 @@ export default function ChallengeGameScreen() {
     setGameOver(false);
     setWinner(null);
     setGameModalVisible(false);
+    setLastSolvedItemId(null);
     
     socket.emit("leaveGame", { lobbyId, playerId });
     removeGameListeners();
@@ -570,6 +561,7 @@ export default function ChallengeGameScreen() {
             const isSolvedOrGameOver = item.solved || gameOver;
             const scale = calculateSpriteScale(spriteInfo.spriteSize, 100);
             const borderImage = item.solvedBy ? getBorderImage(item.solvedBy) : null;
+            const isLastSolved = item.id === lastSolvedItemId;
 
             return (
               <View 
@@ -613,6 +605,14 @@ export default function ChallengeGameScreen() {
                   {item.solved && borderImage && (
                     <Image 
                       source={borderImage}
+                      style={styles.borderOverlay}
+                    />
+                  )}
+                  
+                  {/* Last solved indicator - on top of regular border */}
+                  {isLastSolved && (
+                    <Image 
+                      source={lastSolvedBorder}
                       style={styles.borderOverlay}
                     />
                   )}

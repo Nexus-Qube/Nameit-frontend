@@ -167,7 +167,7 @@ export default function WaitingRoom() {
           Alert.alert("Color Taken", "This color is already selected by another player. Please choose a different color.");
         });
 
-        // Unified gameStarted handler for both game modes
+        // Unified gameStarted handler for all game modes
         s.on("gameStarted", ({ firstTurnPlayerId, firstTurnPlayerName, turnTime: gameTurnTime, gameMode }) => {
           console.log("🎮 Game started:", {
             firstTurnPlayerId,
@@ -184,18 +184,16 @@ export default function WaitingRoom() {
 
           // Determine which game screen to navigate to based on game mode
           let screenName;
-switch(gameMode) {
-  case 2:
-    screenName = "hideAndSeekGameScreen";
-    break;
-  case 3:
-    screenName = "trapGameScreen";
-    break;
-  default:
-    screenName = "challengeGameScreen";
-}
+          switch(gameMode) {
+            case 2: // Hide & Seek
+            case 3: // Trap
+              screenName = "specialItemGameScreen";
+              break;
+            default: // Marathon
+              screenName = "challengeGameScreen";
+          }
 
-console.log(`🎯 Navigating to ${screenName} for game mode ${gameMode}`);
+          console.log(`🎯 Navigating to ${screenName} for game mode ${gameMode}`);
 
           router.push({
             pathname: screenName,
@@ -208,6 +206,7 @@ console.log(`🎯 Navigating to ${screenName} for game mode ${gameMode}`);
               firstTurnPlayerName,
               turnTime: Number(gameTurnTime),
               topicId: Number(topicId),
+              gameMode: Number(gameMode), // Pass game mode to the game screen
             },
           });
         });
@@ -385,30 +384,30 @@ console.log(`🎯 Navigating to ${screenName} for game mode ${gameMode}`);
         </View>
 
         {/* Player Color Selection */}
-<View style={styles.section}>
-  <Text style={styles.sectionTitle}>Your Color</Text>
-  <View style={styles.colorSectionContent}>
-    <TouchableOpacity
-      style={[
-        styles.colorButton,
-        selectedColor && styles.selectedColorButton
-      ]}
-      onPress={() => setColorModalVisible(true)}
-    >
-      <Text style={styles.optionText}>
-        {selectedColor ? 
-          `Selected: ${PLAYER_COLORS.find(c => c.id === selectedColor)?.display}` : 
-          "Choose Your Color"
-        }
-      </Text>
-    </TouchableOpacity>
-    {!canSetReady && (
-      <Text style={styles.colorRequiredText}>
-        * You must select a color to set ready
-      </Text>
-    )}
-  </View>
-</View>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Your Color</Text>
+          <View style={styles.colorSectionContent}>
+            <TouchableOpacity
+              style={[
+                styles.colorButton,
+                selectedColor && styles.selectedColorButton
+              ]}
+              onPress={() => setColorModalVisible(true)}
+            >
+              <Text style={styles.optionText}>
+                {selectedColor ? 
+                  `Selected: ${PLAYER_COLORS.find(c => c.id === selectedColor)?.display}` : 
+                  "Choose Your Color"
+                }
+              </Text>
+            </TouchableOpacity>
+            {!canSetReady && (
+              <Text style={styles.colorRequiredText}>
+                * You must select a color to set ready
+              </Text>
+            )}
+          </View>
+        </View>
 
         {/* Game Rules Section */}
         <View style={styles.section}>
@@ -416,55 +415,55 @@ console.log(`🎯 Navigating to ${screenName} for game mode ${gameMode}`);
           <View style={styles.rulesContainer}>
             {/* Game Mode */}
             <View style={styles.ruleItem}>
-  <Text style={styles.ruleLabel}>Game Mode</Text>
-  <View style={styles.optionsContainer}>
-    <TouchableOpacity
-      style={[
-        styles.optionButton,
-        gameMode === 1 && styles.selectedOption
-      ]}
-      onPress={() => {
-        if (isOwner) {
-          setGameMode(1);
-          updateGameSettings(turnTime, 1);
-        }
-      }}
-      disabled={!isOwner}
-    >
-      <Text style={styles.optionText}>Marathon</Text>
-    </TouchableOpacity>
-    <TouchableOpacity
-      style={[
-        styles.optionButton,
-        gameMode === 2 && styles.selectedOption
-      ]}
-      onPress={() => {
-        if (isOwner) {
-          setGameMode(2);
-          updateGameSettings(turnTime, 2);
-        }
-      }}
-      disabled={!isOwner}
-    >
-      <Text style={styles.optionText}>Hide & Seek</Text>
-    </TouchableOpacity>
-    <TouchableOpacity
-      style={[
-        styles.optionButton,
-        gameMode === 3 && styles.selectedOption
-      ]}
-      onPress={() => {
-        if (isOwner) {
-          setGameMode(3);
-          updateGameSettings(turnTime, 3);
-        }
-      }}
-      disabled={!isOwner}
-    >
-      <Text style={styles.optionText}>Trap</Text>
-    </TouchableOpacity>
-  </View>
-</View>
+              <Text style={styles.ruleLabel}>Game Mode</Text>
+              <View style={styles.optionsContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.optionButton,
+                    gameMode === 1 && styles.selectedOption
+                  ]}
+                  onPress={() => {
+                    if (isOwner) {
+                      setGameMode(1);
+                      updateGameSettings(turnTime, 1);
+                    }
+                  }}
+                  disabled={!isOwner}
+                >
+                  <Text style={styles.optionText}>Marathon</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.optionButton,
+                    gameMode === 2 && styles.selectedOption
+                  ]}
+                  onPress={() => {
+                    if (isOwner) {
+                      setGameMode(2);
+                      updateGameSettings(turnTime, 2);
+                    }
+                  }}
+                  disabled={!isOwner}
+                >
+                  <Text style={styles.optionText}>Hide & Seek</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.optionButton,
+                    gameMode === 3 && styles.selectedOption
+                  ]}
+                  onPress={() => {
+                    if (isOwner) {
+                      setGameMode(3);
+                      updateGameSettings(turnTime, 3);
+                    }
+                  }}
+                  disabled={!isOwner}
+                >
+                  <Text style={styles.optionText}>Trap</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
 
             {/* Turn Time */}
             <View style={styles.ruleItem}>
@@ -552,79 +551,79 @@ console.log(`🎯 Navigating to ${screenName} for game mode ${gameMode}`);
       </TouchableOpacity>
 
       {/* Color Selection Modal */}
-<Modal
-  visible={colorModalVisible}
-  transparent={true}
-  animationType="fade"
-  onRequestClose={() => setColorModalVisible(false)}
->
-  <View style={styles.modalOverlay}>
-    <View style={styles.modalContent}>
-      <Text style={styles.modalTitle}>Choose Your Color</Text>
-      
-      {/* Selected Color Preview */}
-      {selectedColor && (
-        <>
-          <View 
-            style={[
-              styles.colorPreview,
-              { 
-                backgroundColor: PLAYER_COLORS.find(c => c.id === selectedColor)?.value || '#ccc'
-              }
-            ]} 
-          />
-          <Text style={styles.selectedColorName}>
-            {PLAYER_COLORS.find(c => c.id === selectedColor)?.display}
-          </Text>
-        </>
-      )}
-      
-      {/* Color Grid */}
-      <View style={styles.colorGrid}>
-        {availableColors.map((color) => (
-          <TouchableOpacity
-            key={color.id}
-            style={[
-              styles.colorOption,
-              { backgroundColor: color.value || "transparent" },
-              selectedColor === color.id && styles.selectedColor,
-              !color.available && styles.disabledColor
-            ]}
-            onPress={() => {
-              if (color.available) {
-                setSelectedColor(color.id);
-                updatePlayerColor(color.id);
-                setColorModalVisible(false);
-              }
-            }}
-            disabled={!color.available}
-          >
-            <Text style={styles.colorOptionText}>
-              {color.id === null ? "⚪" : ""}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      
-      {/* Action Buttons */}
-      <TouchableOpacity
-        style={styles.modalButton}
-        onPress={() => setColorModalVisible(false)}
+      <Modal
+        visible={colorModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setColorModalVisible(false)}
       >
-        <Text style={styles.buttonText}>
-          {selectedColor ? 'Confirm Color' : 'Close'}
-        </Text>
-      </TouchableOpacity>
-      
-      <TouchableOpacity
-        style={[styles.modalButton, styles.modalCloseButton]}
-        onPress={() => setColorModalVisible(false)}
-      >
-        <Text style={styles.buttonText}>Cancel</Text>
-      </TouchableOpacity>
-    </View>
-  </View>
-</Modal>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Choose Your Color</Text>
+            
+            {/* Selected Color Preview */}
+            {selectedColor && (
+              <>
+                <View 
+                  style={[
+                    styles.colorPreview,
+                    { 
+                      backgroundColor: PLAYER_COLORS.find(c => c.id === selectedColor)?.value || '#ccc'
+                    }
+                  ]} 
+                />
+                <Text style={styles.selectedColorName}>
+                  {PLAYER_COLORS.find(c => c.id === selectedColor)?.display}
+                </Text>
+              </>
+            )}
+            
+            {/* Color Grid */}
+            <View style={styles.colorGrid}>
+              {availableColors.map((color) => (
+                <TouchableOpacity
+                  key={color.id}
+                  style={[
+                    styles.colorOption,
+                    { backgroundColor: color.value || "transparent" },
+                    selectedColor === color.id && styles.selectedColor,
+                    !color.available && styles.disabledColor
+                  ]}
+                  onPress={() => {
+                    if (color.available) {
+                      setSelectedColor(color.id);
+                      updatePlayerColor(color.id);
+                      setColorModalVisible(false);
+                    }
+                  }}
+                  disabled={!color.available}
+                >
+                  <Text style={styles.colorOptionText}>
+                    {color.id === null ? "⚪" : ""}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            {/* Action Buttons */}
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setColorModalVisible(false)}
+            >
+              <Text style={styles.buttonText}>
+                {selectedColor ? 'Confirm Color' : 'Close'}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalCloseButton]}
+              onPress={() => setColorModalVisible(false)}
+            >
+              <Text style={styles.buttonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
