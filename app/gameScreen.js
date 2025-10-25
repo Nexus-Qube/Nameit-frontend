@@ -66,6 +66,7 @@ export default function GameScreen() {
   const [soundsReady, setSoundsReady] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
   const [lastSolvedItemId, setLastSolvedItemId] = useState(null);
+  const [gameCompleted, setGameCompleted] = useState(false); // Track if game was completed by solving all items
 
   const [spriteInfo, setSpriteInfo] = useState({
   spriteSize: 0,        // Will be set from API (always available)
@@ -230,14 +231,16 @@ export default function GameScreen() {
     }
   }, [gameStarted, items.length, gameOver]);
 
-  // Check for game completion
+  // Check for game completion - FIXED VERSION
   useEffect(() => {
-    if (mode === "fastest" && items.length > 0 && solvedCount === items.length) {
+    if (items.length > 0 && solvedCount === items.length && !gameOver) {
+      console.log('🎉 All items solved! Game completed!');
+      setGameCompleted(true);
       setGameOver(true);
       setGameModalVisible(true);
       clearTimer();
     }
-  }, [solvedCount, items, mode]);
+  }, [solvedCount, items.length, gameOver]);
  
   // --- Handle input ---
 const handleInputChange = async (text) => {
@@ -314,6 +317,7 @@ const handleInputChange = async (text) => {
   const handleRestartGame = async () => {
     clearTimer();
     setGameOver(false);
+    setGameCompleted(false);
     setGameModalVisible(false);
     setTime(mode === "countdown" ? 60 : 0);
     setInput(""); // Reset input on restart
@@ -506,16 +510,19 @@ const handleInputChange = async (text) => {
 
         {/* Game Modals Component */}
       <GameModals
-        gameModalVisible={gameModalVisible}
-        onCloseGameModal={handleCloseGameModal}
-        winner={{ name: "You" }}
-        solvedCount={solvedCount}
-        playerSolvedCount={playerSolvedCount}
-        items={items}
-        onReturnToLobby={handleRestartGame}
-        onLeaveGame={handleExitGame}
-        gameMode={1}
-      />
+  gameModalVisible={gameModalVisible}
+  onCloseGameModal={handleCloseGameModal}
+  winner={{ name: "You" }}
+  solvedCount={solvedCount}
+  playerSolvedCount={playerSolvedCount}
+  items={items}
+  onReturnToLobby={handleRestartGame}
+  onLeaveGame={handleExitGame}
+  gameMode={GAME_MODES.SINGLE_PLAYER}
+  gameCompleted={gameCompleted}
+  mode={mode}
+  time={time}
+/>
       </View>
     </KeyboardAvoidingView>
   );
